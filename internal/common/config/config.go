@@ -18,6 +18,8 @@ type Config struct {
 	OrganizationID       string  `json:"organization_id"`
 	SERPProvider         string  `json:"serp_provider"`
 	SERPAPIKey           string  `json:"serp_api_key"`
+	DataForSEOLogin      string  `json:"dataforseo_login"`
+	DataForSEOPassword   string  `json:"dataforseo_password"`
 	ApprovalThresholdUSD float64 `json:"approval_threshold_usd"`
 	GSCProperty          string  `json:"gsc_property"`
 	GSCClientID          string  `json:"gsc_client_id"`
@@ -121,6 +123,10 @@ func (c *Config) Set(key, value string) error {
 		c.SERPProvider = value
 	case "serp_api_key", "serp-api-key", "serpapikey":
 		c.SERPAPIKey = value
+	case "dataforseo_login", "dataforseo-login":
+		c.DataForSEOLogin = value
+	case "dataforseo_password", "dataforseo-password":
+		c.DataForSEOPassword = value
 	case "approval_threshold_usd", "approval-threshold-usd":
 		threshold, err := strconv.ParseFloat(value, 64)
 		if err != nil {
@@ -154,6 +160,10 @@ func (c *Config) Get(key string) (string, error) {
 		return c.SERPProvider, nil
 	case "serp_api_key", "serp-api-key", "serpapikey":
 		return redact(c.SERPAPIKey), nil
+	case "dataforseo_login", "dataforseo-login":
+		return c.DataForSEOLogin, nil
+	case "dataforseo_password", "dataforseo-password":
+		return redact(c.DataForSEOPassword), nil
 	case "approval_threshold_usd", "approval-threshold-usd":
 		return strconv.FormatFloat(c.ApprovalThresholdUSD, 'f', -1, 64), nil
 	case "gsc_property", "gsc-property":
@@ -176,6 +186,8 @@ func (c *Config) Redacted() map[string]any {
 		"organization_id":        c.OrganizationID,
 		"serp_provider":          c.SERPProvider,
 		"serp_api_key":           redact(c.SERPAPIKey),
+		"dataforseo_login":       c.DataForSEOLogin,
+		"dataforseo_password":    redact(c.DataForSEOPassword),
 		"approval_threshold_usd": c.ApprovalThresholdUSD,
 		"gsc_property":           c.GSCProperty,
 		"gsc_client_id":          redact(c.GSCClientID),
@@ -201,6 +213,12 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SAGEO_SERP_API_KEY"); v != "" {
 		c.SERPAPIKey = v
+	}
+	if v := os.Getenv("SAGEO_DATAFORSEO_LOGIN"); v != "" {
+		c.DataForSEOLogin = v
+	}
+	if v := os.Getenv("SAGEO_DATAFORSEO_PASSWORD"); v != "" {
+		c.DataForSEOPassword = v
 	}
 	if v := os.Getenv("SAGEO_APPROVAL_THRESHOLD_USD"); v != "" {
 		if threshold, err := strconv.ParseFloat(v, 64); err == nil {

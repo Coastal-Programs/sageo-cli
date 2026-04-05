@@ -9,6 +9,7 @@ import (
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
 	"github.com/jakeschepis/sageo-cli/internal/common/cost"
 	"github.com/jakeschepis/sageo-cli/internal/serp"
+	serpdforseo "github.com/jakeschepis/sageo-cli/internal/serp/dataforseo"
 	"github.com/jakeschepis/sageo-cli/internal/serp/serpapi"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
@@ -229,9 +230,18 @@ func newSERPCompareCmd(format *string, verbose *bool) *cobra.Command {
 
 func serpProvider(cfg *config.Config) (serp.Provider, error) {
 	switch cfg.SERPProvider {
+	case "dataforseo":
+		if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
+			return nil, fmt.Errorf("dataforseo_login and dataforseo_password not configured; run 'sageo login' to set them")
+		}
+		return serpdforseo.New(cfg.DataForSEOLogin, cfg.DataForSEOPassword), nil
 	case "serpapi", "":
+		// Fall back to DataForSEO when login is set and provider is unset/default
+		if (cfg.SERPProvider == "" || cfg.SERPProvider == "serpapi") && cfg.DataForSEOLogin != "" && cfg.DataForSEOPassword != "" {
+			return serpdforseo.New(cfg.DataForSEOLogin, cfg.DataForSEOPassword), nil
+		}
 		if cfg.SERPAPIKey == "" {
-			return nil, fmt.Errorf("serp_api_key not configured; set via 'sageo config set serp_api_key <key>'")
+			return nil, fmt.Errorf("serp_api_key not configured; set via 'sageo config set serp_api_key <key>' or run 'sageo login' to configure DataForSEO")
 		}
 		return serpapi.New(cfg.SERPAPIKey), nil
 	default:

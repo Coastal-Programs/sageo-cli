@@ -12,6 +12,7 @@ import (
 	"github.com/jakeschepis/sageo-cli/internal/gsc"
 	"github.com/jakeschepis/sageo-cli/internal/opportunities"
 	"github.com/jakeschepis/sageo-cli/internal/serp"
+	serpdforseo "github.com/jakeschepis/sageo-cli/internal/serp/dataforseo"
 	"github.com/jakeschepis/sageo-cli/internal/serp/serpapi"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
@@ -75,15 +76,28 @@ Optionally enrich with live SERP data for validation (paid, supports --dry-run).
 
 			// Cost estimation for SERP enrichment
 			if withSERP {
-				if cfg.SERPAPIKey == "" {
-					return output.PrintCodedError(output.ErrSERPFailed, "serp_api_key not configured",
-						fmt.Errorf("set via 'sageo config set serp_api_key <key>'"), nil, output.Format(*format))
+				usingDataForSEO := cfg.SERPProvider == "dataforseo" ||
+					(cfg.SERPProvider == "" && cfg.DataForSEOLogin != "" && cfg.DataForSEOPassword != "")
+
+				if !usingDataForSEO && cfg.SERPAPIKey == "" {
+					return output.PrintCodedError(output.ErrSERPFailed, "no SERP provider configured",
+						fmt.Errorf("run 'sageo login' to configure DataForSEO, or set serp_api_key for SerpAPI"), nil, output.Format(*format))
+				}
+
+				var unitCost float64
+				var basisStr string
+				if usingDataForSEO {
+					unitCost = 0.002
+					basisStr = fmt.Sprintf("dataforseo: %d queries @ $0.002/query (live mode)", serpQueries)
+				} else {
+					unitCost = 0.01
+					basisStr = fmt.Sprintf("serpapi: %d queries @ $0.01/query", serpQueries)
 				}
 
 				estimate, err := cost.BuildEstimate(cost.EstimateInput{
-					UnitCostUSD: 0.01,
+					UnitCostUSD: unitCost,
 					Units:       serpQueries,
-					Basis:       fmt.Sprintf("serpapi: %d queries @ $0.01/query", serpQueries),
+					Basis:       basisStr,
 				})
 				if err != nil {
 					return output.PrintCodedError(output.ErrEstimateFailed, "failed to estimate cost", err, nil, output.Format(*format))
@@ -149,7 +163,14 @@ Optionally enrich with live SERP data for validation (paid, supports --dry-run).
 }
 
 func fetchSERPForSeeds(cfg *config.Config, seeds []gsc.OpportunitySeed, maxQueries int) (map[string]*serp.AnalyzeResponse, map[string]any, error) {
-	provider := serpapi.New(cfg.SERPAPIKey)
+	var provider serp.Provider
+	usingDataForSEO := cfg.SERPProvider == "dataforseo" ||
+		((cfg.SERPProvider == "" || cfg.SERPProvider == "serpapi") && cfg.DataForSEOLogin != "" && cfg.DataForSEOPassword != "")
+	if usingDataForSEO {
+		provider = serpdforseo.New(cfg.DataForSEOLogin, cfg.DataForSEOPassword)
+	} else {
+		provider = serpapi.New(cfg.SERPAPIKey)
+	}
 	cacheStore := cache.NewFileStore()
 	results := make(map[string]*serp.AnalyzeResponse)
 	meta := map[string]any{}
@@ -167,10 +188,11 @@ func fetchSERPForSeeds(cfg *config.Config, seeds []gsc.OpportunitySeed, maxQueri
 	cacheHits := 0
 	for _, q := range uniqueQueries {
 		req := serp.AnalyzeRequest{Query: q}
-		cacheKey := map[string]any{"provider": "serpapi", "request": req}
+		providerName := provider.Name()
+		cacheKey := map[string]any{"provider": providerName, "request": req}
 
 		// Try cache first
-		if rec, hit, err := cacheStore.Get("serpapi", cacheKey); hit && err == nil {
+		if rec, hit, err := cacheStore.Get(providerName, cacheKey); hit && err == nil {
 			var resp serp.AnalyzeResponse
 			if jsonErr := json.Unmarshal(rec.Payload, &resp); jsonErr == nil {
 				results[q] = &resp
@@ -188,9 +210,9 @@ func fetchSERPForSeeds(cfg *config.Config, seeds []gsc.OpportunitySeed, maxQueri
 		// Cache
 		fetchedAt := time.Now().Format(time.RFC3339)
 		if payload, jsonErr := json.Marshal(resp); jsonErr == nil {
-			_ = cacheStore.Set("serpapi", cacheKey, cache.Record{
+			_ = cacheStore.Set(providerName, cacheKey, cache.Record{
 				Payload:    payload,
-				Source:     "serpapi",
+				Source:     providerName,
 				FetchedAt:  fetchedAt,
 				TTLSeconds: 3600,
 			})

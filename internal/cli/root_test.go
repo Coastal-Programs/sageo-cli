@@ -16,6 +16,10 @@ func TestNewRootCmdRegistersTopLevelCommands(t *testing.T) {
 		"gsc":           false,
 		"serp":          false,
 		"opportunities": false,
+		"aeo":           false,
+		"geo":           false,
+		"login":         false,
+		"logout":        false,
 	}
 
 	for _, sub := range cmd.Commands() {
@@ -44,6 +48,8 @@ func TestSubcommandStructure(t *testing.T) {
 		"auth":     {"login", "status", "logout"},
 		"gsc":      {"sites", "query", "opportunities"},
 		"serp":     {"analyze", "compare"},
+		"aeo":      {"responses", "keywords"},
+		"geo":      {"mentions", "top-pages"},
 	}
 
 	for _, sub := range cmd.Commands() {
