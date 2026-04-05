@@ -12,7 +12,7 @@ func TestFetchReturnsBodyAndStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Test", "yes")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><head><title>Test</title></head></html>"))
+		_, _ = w.Write([]byte("<html><head><title>Test</title></head></html>"))
 	}))
 	defer srv.Close()
 
@@ -70,7 +70,7 @@ func TestFetchRespectsContext(t *testing.T) {
 func TestFetchHandles404(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("not found"))
+		_, _ = w.Write([]byte("not found"))
 	}))
 	defer srv.Close()
 

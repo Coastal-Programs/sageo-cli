@@ -2,7 +2,7 @@
 
 ## Scope (Current Phase)
 
-Phase two is complete. The CLI has working crawl, audit, report, and provider services.
+Phase three is complete. The CLI has working crawl, audit, report, provider, auth, GSC, SERP, and opportunities services.
 
 ### Implemented
 - BFS website crawler with depth/page limits and concurrent fetching
@@ -10,6 +10,14 @@ Phase two is complete. The CLI has working crawl, audit, report, and provider se
 - JSON report generation and storage
 - Provider abstraction with built-in `local` HTTP fetcher
 - Full crawl → audit → report pipeline
+- Google Search Console integration (sites list, query pages/keywords, opportunity seeds)
+- OAuth2 authentication flow for GSC with token persistence
+- SerpAPI SERP analysis adapter with cost estimation
+- Cost-aware execution contracts (`estimated_cost`, `requires_approval`, `cached`, `source`, `fetched_at`)
+- `--dry-run` support for paid workflows
+- File-based response caching with TTL
+- Approval gate blocking execution when estimated cost exceeds threshold
+- Opportunity detection merging GSC + optional SERP evidence
 
 ### Do now
 - Keep command architecture stable
@@ -17,11 +25,14 @@ Phase two is complete. The CLI has working crawl, audit, report, and provider se
 - Preserve config and output consistency
 - Extend audit rules as needed
 - Add new providers via the registry pattern
+- Add new SERP providers behind the `serp.Provider` interface
 
 ### Do not do without explicit instructions
-- Add external API provider integrations
-- Change the output envelope contract
-- Restructure the command hierarchy
+- Add multiple paid SEO providers at once
+- Add backlink/domain analytics suites prematurely
+- Embed OpenAI/Anthropic inside the CLI by default
+- Change the output envelope contract incompatibly
+- Restructure the command hierarchy unnecessarily
 
 ## Conventions
 
@@ -31,8 +42,14 @@ Phase two is complete. The CLI has working crawl, audit, report, and provider se
 - Root command wiring: `internal/cli/root.go`
 - Command files: `internal/cli/commands/*.go`
 - Config package: `internal/common/config`
+- Cost package: `internal/common/cost`
+- Cache package: `internal/common/cache`
 - Output package: `pkg/output`
 - Provider package: `internal/provider`
+- Auth package: `internal/auth`
+- GSC package: `internal/gsc`
+- SERP package: `internal/serp` (adapter: `internal/serp/serpapi`)
+- Opportunities package: `internal/opportunities`
 - Domain packages: `internal/crawl`, `internal/audit`, `internal/report`
 
 ## Output Contract
@@ -44,6 +61,9 @@ Prefer envelope-style structured output:
 - `metadata`
 
 Default command output should remain `json` for automation and agent usage.
+
+Paid commands include additional metadata keys:
+- `estimated_cost`, `currency`, `requires_approval`, `cached`, `source`, `fetched_at`, `dry_run`
 
 ## Configuration
 
@@ -58,6 +78,12 @@ Supported env overrides:
 - `SAGEO_API_KEY`
 - `SAGEO_BASE_URL`
 - `SAGEO_ORGANIZATION_ID`
+- `SAGEO_SERP_PROVIDER`
+- `SAGEO_SERP_API_KEY`
+- `SAGEO_APPROVAL_THRESHOLD_USD`
+- `SAGEO_GSC_PROPERTY`
+- `SAGEO_GSC_CLIENT_ID`
+- `SAGEO_GSC_CLIENT_SECRET`
 
 ## Validation Commands
 

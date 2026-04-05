@@ -5,16 +5,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
 
 // Config stores local Sageo CLI settings.
 type Config struct {
-	ActiveProvider string `json:"active_provider"`
-	APIKey         string `json:"api_key"`
-	BaseURL        string `json:"base_url"`
-	OrganizationID string `json:"organization_id"`
+	ActiveProvider       string  `json:"active_provider"`
+	APIKey               string  `json:"api_key"`
+	BaseURL              string  `json:"base_url"`
+	OrganizationID       string  `json:"organization_id"`
+	SERPProvider         string  `json:"serp_provider"`
+	SERPAPIKey           string  `json:"serp_api_key"`
+	ApprovalThresholdUSD float64 `json:"approval_threshold_usd"`
+	GSCProperty          string  `json:"gsc_property"`
+	GSCClientID          string  `json:"gsc_client_id"`
+	GSCClientSecret      string  `json:"gsc_client_secret"`
 }
 
 var (
@@ -74,8 +81,10 @@ func Load() (*Config, error) {
 // NewDefault returns default placeholder values for scaffold phase.
 func NewDefault() *Config {
 	return &Config{
-		ActiveProvider: "local",
-		BaseURL:        "",
+		ActiveProvider:       "local",
+		BaseURL:              "",
+		SERPProvider:         "serpapi",
+		ApprovalThresholdUSD: 0,
 	}
 }
 
@@ -108,6 +117,22 @@ func (c *Config) Set(key, value string) error {
 		c.BaseURL = value
 	case "organization_id", "organization-id", "org_id", "org-id":
 		c.OrganizationID = value
+	case "serp_provider", "serp-provider":
+		c.SERPProvider = value
+	case "serp_api_key", "serp-api-key", "serpapikey":
+		c.SERPAPIKey = value
+	case "approval_threshold_usd", "approval-threshold-usd":
+		threshold, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("invalid approval_threshold_usd: %w", err)
+		}
+		c.ApprovalThresholdUSD = threshold
+	case "gsc_property", "gsc-property":
+		c.GSCProperty = value
+	case "gsc_client_id", "gsc-client-id":
+		c.GSCClientID = value
+	case "gsc_client_secret", "gsc-client-secret":
+		c.GSCClientSecret = value
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -125,6 +150,18 @@ func (c *Config) Get(key string) (string, error) {
 		return c.BaseURL, nil
 	case "organization_id", "organization-id", "org_id", "org-id":
 		return c.OrganizationID, nil
+	case "serp_provider", "serp-provider":
+		return c.SERPProvider, nil
+	case "serp_api_key", "serp-api-key", "serpapikey":
+		return redact(c.SERPAPIKey), nil
+	case "approval_threshold_usd", "approval-threshold-usd":
+		return strconv.FormatFloat(c.ApprovalThresholdUSD, 'f', -1, 64), nil
+	case "gsc_property", "gsc-property":
+		return c.GSCProperty, nil
+	case "gsc_client_id", "gsc-client-id":
+		return redact(c.GSCClientID), nil
+	case "gsc_client_secret", "gsc-client-secret":
+		return redact(c.GSCClientSecret), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}
@@ -133,10 +170,16 @@ func (c *Config) Get(key string) (string, error) {
 // Redacted returns map output safe for display.
 func (c *Config) Redacted() map[string]any {
 	return map[string]any{
-		"active_provider": c.ActiveProvider,
-		"api_key":         redact(c.APIKey),
-		"base_url":        c.BaseURL,
-		"organization_id": c.OrganizationID,
+		"active_provider":        c.ActiveProvider,
+		"api_key":                redact(c.APIKey),
+		"base_url":               c.BaseURL,
+		"organization_id":        c.OrganizationID,
+		"serp_provider":          c.SERPProvider,
+		"serp_api_key":           redact(c.SERPAPIKey),
+		"approval_threshold_usd": c.ApprovalThresholdUSD,
+		"gsc_property":           c.GSCProperty,
+		"gsc_client_id":          redact(c.GSCClientID),
+		"gsc_client_secret":      redact(c.GSCClientSecret),
 	}
 }
 
@@ -152,6 +195,26 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SAGEO_ORGANIZATION_ID"); v != "" {
 		c.OrganizationID = v
+	}
+	if v := os.Getenv("SAGEO_SERP_PROVIDER"); v != "" {
+		c.SERPProvider = v
+	}
+	if v := os.Getenv("SAGEO_SERP_API_KEY"); v != "" {
+		c.SERPAPIKey = v
+	}
+	if v := os.Getenv("SAGEO_APPROVAL_THRESHOLD_USD"); v != "" {
+		if threshold, err := strconv.ParseFloat(v, 64); err == nil {
+			c.ApprovalThresholdUSD = threshold
+		}
+	}
+	if v := os.Getenv("SAGEO_GSC_PROPERTY"); v != "" {
+		c.GSCProperty = v
+	}
+	if v := os.Getenv("SAGEO_GSC_CLIENT_ID"); v != "" {
+		c.GSCClientID = v
+	}
+	if v := os.Getenv("SAGEO_GSC_CLIENT_SECRET"); v != "" {
+		c.GSCClientSecret = v
 	}
 }
 

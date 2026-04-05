@@ -13,4 +13,10 @@ const (
 	ErrReportListFailed  = "REPORT_LIST_FAILED"
 	ErrFetchTimeout      = "FETCH_TIMEOUT"
 	ErrCancelled         = "CANCELLED"
+	ErrAuthRequired      = "AUTH_REQUIRED"
+	ErrAuthFailed        = "AUTH_FAILED"
+	ErrApprovalRequired  = "APPROVAL_REQUIRED"
+	ErrEstimateFailed    = "ESTIMATE_FAILED"
+	ErrSERPFailed        = "SERP_FAILED"
+	ErrGSCFailed         = "GSC_FAILED"
 )

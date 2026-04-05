@@ -15,41 +15,41 @@ func newTestSite() *httptest.Server {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			w.WriteHeader(404)
-			w.Write([]byte("not found"))
+			_, _ = w.Write([]byte("not found"))
 			return
 		}
-		w.Write([]byte(`<html><head><title>Home</title></head><body>
+		_, _ = w.Write([]byte(`<html><head><title>Home</title></head><body>
 			<h1>Welcome</h1>
 			<a href="/about">About</a>
 			<a href="/blog">Blog</a>
 		</body></html>`))
 	})
 	mux.HandleFunc("/about", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><head><title>About</title></head><body>
+		_, _ = w.Write([]byte(`<html><head><title>About</title></head><body>
 			<h1>About Us</h1>
 			<a href="/">Home</a>
 			<a href="/contact">Contact</a>
 		</body></html>`))
 	})
 	mux.HandleFunc("/blog", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><head><title>Blog</title></head><body>
+		_, _ = w.Write([]byte(`<html><head><title>Blog</title></head><body>
 			<h1>Blog</h1>
 			<a href="/blog/post1">Post 1</a>
 		</body></html>`))
 	})
 	mux.HandleFunc("/contact", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><head><title>Contact</title></head><body>
+		_, _ = w.Write([]byte(`<html><head><title>Contact</title></head><body>
 			<h1>Contact</h1>
 		</body></html>`))
 	})
 	mux.HandleFunc("/blog/post1", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><head><title>Post 1</title></head><body>
+		_, _ = w.Write([]byte(`<html><head><title>Post 1</title></head><body>
 			<h1>Post 1</h1>
 			<a href="/blog/post2">Post 2</a>
 		</body></html>`))
 	})
 	mux.HandleFunc("/blog/post2", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><head><title>Post 2</title></head><body>
+		_, _ = w.Write([]byte(`<html><head><title>Post 2</title></head><body>
 			<h1>Post 2</h1>
 		</body></html>`))
 	})
@@ -108,15 +108,15 @@ func TestCrawlerMaxPages(t *testing.T) {
 
 func TestCrawlerSameDomainOnly(t *testing.T) {
 	external := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("<html><head><title>External</title></head></html>"))
+		_, _ = w.Write([]byte("<html><head><title>External</title></head></html>"))
 	}))
 	defer external.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(fmt.Sprintf(`<html><head><title>Home</title></head><body>
+		_, _ = fmt.Fprintf(w, `<html><head><title>Home</title></head><body>
 			<a href="%s">External</a>
-		</body></html>`, external.URL)))
+		</body></html>`, external.URL)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -143,11 +143,11 @@ func TestCrawlerSameDomainOnly(t *testing.T) {
 func TestCrawlerHandlesErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			w.Write([]byte(`<html><body><a href="/broken">Broken</a></body></html>`))
+			_, _ = w.Write([]byte(`<html><body><a href="/broken">Broken</a></body></html>`))
 			return
 		}
 		w.WriteHeader(500)
-		w.Write([]byte("server error"))
+		_, _ = w.Write([]byte("server error"))
 	}))
 	defer srv.Close()
 

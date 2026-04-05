@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-04-05
+
+### Added
+- **Google Search Console integration**: `gsc sites list`, `gsc sites use`, `gsc query pages`, `gsc query keywords`, `gsc opportunities` commands for real search performance data.
+- **OAuth2 authentication**: `auth login gsc`, `auth status`, `auth logout gsc` with local callback server and file-based token persistence.
+- **SerpAPI SERP analysis**: `serp analyze` and `serp compare` commands with `--dry-run` support and cost estimation.
+- **Opportunity detection**: `opportunities` command merges GSC seeds with optional SERP enrichment, classifying by type, confidence, impact, and effort.
+- **Cost-aware execution**: `internal/common/cost` package with `BuildEstimate` and `EvaluateApproval` for approval gate enforcement.
+- **File-based caching**: `internal/common/cache` package with TTL-based expiry, used by SERP and opportunities commands.
+- **New error codes**: `AUTH_REQUIRED`, `AUTH_FAILED`, `APPROVAL_REQUIRED`, `ESTIMATE_FAILED`, `SERP_FAILED`, `GSC_FAILED`.
+- **New config keys**: `serp_provider`, `serp_api_key`, `approval_threshold_usd`, `gsc_property`, `gsc_client_id`, `gsc_client_secret` with env overrides and redaction.
+- Tests for cost estimation, approval gates, cache behavior, auth token store, SerpAPI adapter, and opportunity merge logic.
+
+### Changed
+- Updated `README.md` with auth, GSC, SERP, and opportunities command documentation.
+- Updated `ARCHITECTURE.md` with Phase 3 package responsibilities and cost-aware execution model.
+- Updated `CLAUDE.md` to reflect Phase 3 completion.
+
+## [0.2.2] - 2026-04-05
+
+### Added
+- `PHASE3_PLAN.md` defining the next stage as agent-first SEO/AEO/GEO intelligence, with Google Search Console, one SERP provider, cost-aware execution, and dry-run planning.
+
+### Changed
+- Updated `README.md` to clearly explain what the CLI does today versus what Phase 3 will add.
+- Updated `ARCHITECTURE.md` with the Phase 3 free-first / paid-second model and planned cost metadata.
+- Updated `CLAUDE.md` with Phase 3 guidance for external evidence providers and cost-aware command design.
+
 ## [0.2.1] - 2026-04-05
 
 ### Changed

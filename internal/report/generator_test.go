@@ -72,7 +72,9 @@ func TestListReturnsStoredReports(t *testing.T) {
 
 	// Write a second report with different name
 	secondFile := filepath.Join(dir, "2025-01-02T10-00-00.json")
-	os.WriteFile(secondFile, []byte(`{"generated_at":"2025-01-02T10:00:00Z","target_url":"https://other.com","score":75,"page_count":2,"issue_count":{},"issues":[],"pages":[]}`), 0o644)
+	if err := os.WriteFile(secondFile, []byte(`{"generated_at":"2025-01-02T10:00:00Z","target_url":"https://other.com","score":75,"page_count":2,"issue_count":{},"issues":[],"pages":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	reports, err := svc.List(context.Background(), dir)
 	if err != nil {

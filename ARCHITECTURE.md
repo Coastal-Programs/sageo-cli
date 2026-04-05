@@ -2,7 +2,7 @@
 
 ## Overview
 
-Sageo CLI is a Go + Cobra single-binary command-line tool for SEO crawling, auditing, and reporting. It uses a provider abstraction for HTTP fetching, a BFS crawler for page discovery, a rule-based audit engine, and JSON report storage.
+Sageo CLI is a Go + Cobra single-binary command-line tool for SEO, AEO, and GEO operations. It uses a provider abstraction for HTTP fetching, a BFS crawler for page discovery, a rule-based audit engine, JSON report storage, Google Search Console integration, SERP analysis via SerpAPI, and an opportunity detection layer that merges signals from multiple sources.
 
 ## Data Flow
 
@@ -20,6 +20,10 @@ The `crawl run` command stops after crawling. The `audit run` command runs crawl
 - `audit` — SEO audit (`run`)
 - `report` — report generation and listing (`generate`, `list`)
 - `provider` — provider management (`list`, `use`)
+- `auth` — service authentication (`login`, `status`, `logout`)
+- `gsc` — Google Search Console (`sites list`, `sites use`, `query pages`, `query keywords`, `opportunities`)
+- `serp` — SERP analysis (`analyze`, `compare`) — paid, supports `--dry-run`
+- `opportunities` — merged opportunity detection from GSC + optional SERP enrichment
 
 Global flags:
 - `--output, -o` (`json`, `text`, `table`) default `json`
@@ -61,12 +65,57 @@ Report generation and storage:
 - `service.go`: `Service` interface (with `Generate` and `List` methods), `Request`, `Result`, `ReportMeta` types.
 - `generator.go`: Writes JSON reports to `~/.config/sageo/reports/` and reads stored report metadata.
 
+### `internal/auth`
+OAuth token store:
+- `FileTokenStore`: persists tokens to `~/.config/sageo/auth/<service>.json`
+- `Save`, `Load`, `Delete`, `Status` operations
+- Expiry checking based on stored `expires_at`
+
+### `internal/gsc`
+Google Search Console client:
+- `Client`: authenticated API client for GSC
+- `ListSites`: list accessible properties
+- `QueryPages`, `QueryKeywords`: Search Analytics queries by dimension
+- `QueryOpportunities`: filtered query+page pairs for opportunity detection
+- `HTTPClient` interface for testability
+
+### `internal/serp`
+SERP provider abstraction:
+- `Provider` interface: `Name()`, `Estimate()`, `Analyze()`
+- `AnalyzeRequest`, `AnalyzeResponse`, `OrganicResult` types
+
+### `internal/serp/serpapi`
+SerpAPI adapter:
+- Implements `serp.Provider`
+- Cost estimation at $0.01/search
+- JSON response parsing with domain extraction
+- `WithBaseURL` and `WithHTTPClient` options for testing
+
+### `internal/opportunities`
+Opportunity detection and merge logic:
+- `Merge`: combines GSC seeds with optional SERP evidence
+- Classifies opportunities by type (`page`, `keyword`, `answer`)
+- Scores by confidence, impact estimate, and effort estimate
+- SERP enrichment adds position validation and answer box detection
+
 ### `internal/common/config`
 Config management:
 - Path resolution (`SAGEO_CONFIG` override + XDG-style fallback)
 - `Load` and `Save`
-- Env override hooks (`SAGEO_PROVIDER`, `SAGEO_API_KEY`, `SAGEO_BASE_URL`, `SAGEO_ORGANIZATION_ID`)
-- Secret redaction for safe display
+- Env override hooks for all keys including GSC/SERP/approval settings
+- Secret redaction for safe display (API keys, client secrets)
+
+### `internal/common/cost`
+Cost estimation and approval gates:
+- `BuildEstimate`: computes cost from unit pricing
+- `EvaluateApproval`: blocks execution when estimated cost exceeds threshold
+- Used by SERP and opportunities commands
+
+### `internal/common/cache`
+File-based response caching:
+- `FileStore`: persists cached responses to `~/.config/sageo/cache/<provider>/<hash>.json`
+- TTL-based expiry
+- `Metadata` type for output envelope integration
 
 ### `pkg/output`
 Shared envelope and renderer:
@@ -83,9 +132,44 @@ Keys:
 - `api_key` (redacted on read/show)
 - `base_url`
 - `organization_id`
+- `serp_provider` — SERP data provider (default: `serpapi`)
+- `serp_api_key` (redacted on read/show)
+- `approval_threshold_usd` — cost gate threshold; 0 means no gate
+- `gsc_property` — active GSC property URL
+- `gsc_client_id` (redacted on read/show)
+- `gsc_client_secret` (redacted on read/show)
 
 Default file: `~/.config/sageo/config.json`
 Override: `SAGEO_CONFIG` (must be absolute `.json` path)
+
+## Cost-Aware Execution Model (Phase 3)
+
+Phase 3 added a cost-aware execution model for paid API calls:
+
+### Free-first, paid-second
+Recommended execution order:
+1. Local crawl/audit (free)
+2. Google Search Console data (free, requires OAuth)
+3. Paid SERP lookups only for narrowed, high-value checks
+
+### Cost metadata
+Paid commands expose machine-readable metadata:
+- `estimated_cost` — computed cost estimate before execution
+- `currency` — always `USD`
+- `requires_approval` — true when estimate exceeds `approval_threshold_usd`
+- `cached` — whether the response came from cache
+- `source` — which provider produced the data
+- `fetched_at` — RFC3339 timestamp of data retrieval
+- `dry_run` — true when `--dry-run` flag was used
+
+### Approval gate
+When `approval_threshold_usd` is set (> 0), any paid command whose estimated cost exceeds the threshold returns `APPROVAL_REQUIRED` without executing.
+
+### Caching
+Paid responses are cached to `~/.config/sageo/cache/` with configurable TTL. Cache hits are reflected in output metadata and avoid repeat charges.
+
+### Why this matters
+`sageo-cli` is designed for AI agents. The CLI collects, normalizes, and prices the evidence. The external AI agent decides what to do next.
 
 ## Build and Release
 

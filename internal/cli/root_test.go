@@ -6,12 +6,16 @@ func TestNewRootCmdRegistersTopLevelCommands(t *testing.T) {
 	cmd := newRootCmd("test-version")
 
 	expected := map[string]bool{
-		"version":  false,
-		"config":   false,
-		"crawl":    false,
-		"audit":    false,
-		"report":   false,
-		"provider": false,
+		"version":       false,
+		"config":        false,
+		"crawl":         false,
+		"audit":         false,
+		"report":        false,
+		"provider":      false,
+		"auth":          false,
+		"gsc":           false,
+		"serp":          false,
+		"opportunities": false,
 	}
 
 	for _, sub := range cmd.Commands() {
@@ -37,6 +41,9 @@ func TestSubcommandStructure(t *testing.T) {
 		"report":   {"generate", "list"},
 		"provider": {"list", "use"},
 		"config":   {"show", "get", "set", "path"},
+		"auth":     {"login", "status", "logout"},
+		"gsc":      {"sites", "query", "opportunities"},
+		"serp":     {"analyze", "compare"},
 	}
 
 	for _, sub := range cmd.Commands() {
