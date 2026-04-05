@@ -55,6 +55,7 @@ Crawl websites, run SEO audits, generate reports, and manage providers.`,
 	cmd.AddCommand(commands.NewOpportunitiesCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewAEOCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewGEOCmd(&outputFormat, &verbose))
+	cmd.AddCommand(commands.NewLabsCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewLoginCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewLogoutCmd())
 

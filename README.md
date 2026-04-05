@@ -61,7 +61,7 @@ sageo --help
 ## Setup
 
 ```bash
-# Interactive credential setup (GSC OAuth, DataForSEO, SerpAPI)
+# Interactive guided credential setup (selector flow for GSC OAuth, DataForSEO, SerpAPI)
 sageo login
 
 # Or set individual keys
@@ -72,6 +72,8 @@ sageo config set serp_provider dataforseo
 # Set a cost approval threshold (paid calls above this require explicit approval)
 sageo config set approval_threshold_usd 1.00
 ```
+
+> `sageo login` is terminal-only (requires an interactive TTY), and secret inputs are masked during entry.
 
 > DataForSEO API password is separate from your account password. Find it at `app.dataforseo.com/api-access`.
 

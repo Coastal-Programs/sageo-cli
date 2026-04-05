@@ -4,8 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Planned
-- `labs` command group for DataForSEO Labs data:
+## [0.5.0] - 2026-04-05
+
+### Added
+- **Labs command group** (`labs`) for DataForSEO Labs intelligence:
   - `labs ranked-keywords`
   - `labs keywords`
   - `labs overview`
