@@ -21,11 +21,11 @@
 </p>
 </div>
 
-SEO, AEO, and GEO intelligence for AI agents. Single Go binary. JSON output on every command.
+SEO, AEO, GEO, and Labs intelligence for AI agents. Single Go binary. JSON output on every command.
 
-Sageo gives AI agents structured access to search and AI visibility data: crawling, auditing, Google Search Console, live SERP results, and AI engine responses, all through one CLI that returns machine-readable JSON. No dashboard. No browser. No monthly subscription.
+Sageo gives AI agents structured access to search and AI visibility data: crawling, auditing, Google Search Console, live SERP results, AI engine responses, and keyword/domain intelligence — all through one CLI that returns machine-readable JSON. No dashboard. No browser. No monthly subscription.
 
-Crawling and auditing are free. Paid operations (SERP, AEO, GEO) always show a cost estimate before executing and support `--dry-run`.
+Crawling and auditing are free. Paid operations (SERP, AEO, GEO, Labs) always show a cost estimate before executing and support `--dry-run`.
 
 ## Install
 
@@ -136,6 +136,26 @@ sageo geo mentions --keyword "seo tools" --domain example.com
 
 # Which pages are most cited by AI engines
 sageo geo top-pages --keyword "seo tools"
+```
+
+### Labs (DataForSEO Labs)
+
+```bash
+# Keywords a domain ranks for
+sageo labs ranked-keywords --target example.com --dry-run
+sageo labs ranked-keywords --target example.com --limit 100 --min-volume 500
+
+# Keyword ideas relevant to a domain
+sageo labs keywords --target example.com --limit 50
+
+# Domain ranking overview
+sageo labs overview --target example.com
+
+# Competing domains
+sageo labs competitors --target example.com --limit 20
+
+# Keyword ideas from a seed keyword
+sageo labs keyword-ideas --keyword "seo tools" --limit 50
 ```
 
 ### Auth

@@ -26,11 +26,9 @@ The `crawl run` command stops after crawling. The `audit run` command runs crawl
 - `opportunities` — merged opportunity detection from GSC + optional SERP enrichment
 - `aeo` — Answer Engine Optimization (`responses`, `keywords`) — paid, supports `--dry-run`
 - `geo` — Generative Engine Optimization (`mentions`, `top-pages`) — paid, supports `--dry-run`
+- `labs` — DataForSEO Labs intelligence (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`) — paid, supports `--dry-run`
 - `login` — interactive credential setup
 - `logout` — clear stored credentials
-
-### Planned next command group
-- `labs` — DataForSEO Labs intelligence (planned): `ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`
 
 Global flags:
 - `--output, -o` (`json`, `text`, `table`) default `json`
@@ -102,7 +100,7 @@ SerpAPI adapter:
 Shared DataForSEO HTTP client:
 - Basic Auth credential handling
 - Configurable base URL and HTTP client
-- Reused by AEO, GEO, and DataForSEO-backed SERP commands
+- Reused by AEO, GEO, Labs, and DataForSEO-backed SERP commands
 
 ### `internal/serp/dataforseo`
 DataForSEO SERP adapter:
@@ -110,8 +108,14 @@ DataForSEO SERP adapter:
 - Uses DataForSEO organic search endpoint
 - Provider-selected in CLI via `serp_provider = "dataforseo"`
 
-### Planned package addition
-- `internal/cli/commands/labs.go` (planned) for DataForSEO Labs command implementations
+### `internal/cli/commands/labs.go`
+DataForSEO Labs command implementations:
+- `ranked-keywords` — keywords a domain/URL ranks for, with position, volume, and difficulty
+- `keywords` — keyword ideas relevant to a domain
+- `overview` — domain ranking distribution and estimated traffic
+- `competitors` — competing domains by ranking overlap
+- `keyword-ideas` — keyword ideas from a seed keyword
+- All subcommands: credential check, $0.01/task cost estimate, approval gate, `--dry-run`
 
 ### `internal/opportunities`
 Opportunity detection and merge logic:
@@ -131,7 +135,7 @@ Config management:
 Cost estimation and approval gates:
 - `BuildEstimate`: computes cost from unit pricing
 - `EvaluateApproval`: blocks execution when estimated cost exceeds threshold
-- Used by paid commands (`serp`, `opportunities` when enriched, `aeo`, `geo`)
+- Used by paid commands (`serp`, `opportunities` when enriched, `aeo`, `geo`, `labs`)
 
 ### `internal/common/cache`
 File-based response caching:
@@ -172,7 +176,7 @@ Override: `SAGEO_CONFIG` (must be absolute `.json` path)
 Recommended execution order:
 1. Local crawl/audit (free)
 2. Google Search Console data (free, requires OAuth)
-3. Paid lookups only for narrowed, high-value checks (SERP/AEO/GEO)
+3. Paid lookups only for narrowed, high-value checks (SERP/AEO/GEO/Labs)
 
 ### Cost metadata
 Paid commands expose machine-readable metadata:

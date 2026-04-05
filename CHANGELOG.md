@@ -8,11 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Labs command group** (`labs`) for DataForSEO Labs intelligence:
-  - `labs ranked-keywords`
-  - `labs keywords`
-  - `labs overview`
-  - `labs competitors`
-  - `labs keyword-ideas`
+  - `labs ranked-keywords` — keywords a domain/URL ranks for
+  - `labs keywords` — keyword ideas relevant to a domain
+  - `labs overview` — domain ranking distribution and estimated traffic
+  - `labs competitors` — competing domains by ranking overlap
+  - `labs keyword-ideas` — keyword ideas from a seed keyword
+
+### Improved
+- **Interactive login** (`sageo login`) rewritten with Charm Huh forms — selector flow, masked secret inputs, Esc-to-back navigation, and setup summary on exit
 
 ## [0.1.0] - 2026-04-05
 

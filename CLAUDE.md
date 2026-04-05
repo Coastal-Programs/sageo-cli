@@ -2,7 +2,7 @@
 
 ## Scope
 
-The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, and opportunities services.
+The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, Labs, and opportunities services.
 
 ### Implemented
 - BFS website crawler with depth/page limits and concurrent fetching
@@ -14,7 +14,7 @@ The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, a
 - OAuth2 authentication flow for GSC with token persistence
 - SERP analysis adapters (SerpAPI and DataForSEO)
 - AEO and GEO command groups backed by DataForSEO
-- Labs command group is planned next for DataForSEO Labs endpoints (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`)
+- Labs command group for DataForSEO Labs intelligence (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`)
 - Cost-aware execution contracts (`estimated_cost`, `requires_approval`, `cached`, `source`, `fetched_at`)
 - `--dry-run` support for paid workflows
 - File-based response caching with TTL
@@ -42,7 +42,7 @@ The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, a
 - CLI framework: Cobra
 - Entry point: `cmd/sageo/main.go`
 - Root command wiring: `internal/cli/root.go`
-- Command files: `internal/cli/commands/*.go` (planned addition: `labs.go`)
+- Command files: `internal/cli/commands/*.go` (includes `labs.go`)
 - Config package: `internal/common/config`
 - Cost package: `internal/common/cost`
 - Cache package: `internal/common/cache`
