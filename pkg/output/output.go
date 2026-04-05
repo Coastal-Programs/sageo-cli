@@ -169,7 +169,9 @@ func printTable(data any) error {
 	for i := 0; i < typeInfo.NumField(); i++ {
 		headers[i] = strings.ToUpper(typeInfo.Field(i).Name)
 	}
-	fmt.Fprintln(writer, strings.Join(headers, "\t"))
+	if _, err := fmt.Fprintln(writer, strings.Join(headers, "\t")); err != nil {
+		return err
+	}
 
 	for i := 0; i < value.Len(); i++ {
 		row := value.Index(i)
@@ -180,7 +182,9 @@ func printTable(data any) error {
 		for j := 0; j < row.NumField(); j++ {
 			cells[j] = fmt.Sprintf("%v", row.Field(j).Interface())
 		}
-		fmt.Fprintln(writer, strings.Join(cells, "\t"))
+		if _, err := fmt.Fprintln(writer, strings.Join(cells, "\t")); err != nil {
+			return err
+		}
 	}
 
 	return writer.Flush()

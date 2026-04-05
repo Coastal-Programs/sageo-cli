@@ -1,8 +1,8 @@
 # Sageo CLI — Agent Notes
 
-## Scope (Current Phase)
+## Scope
 
-Phase three is complete. The CLI has working crawl, audit, report, provider, auth, GSC, SERP, and opportunities services.
+The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, and opportunities services.
 
 ### Implemented
 - BFS website crawler with depth/page limits and concurrent fetching
@@ -12,7 +12,9 @@ Phase three is complete. The CLI has working crawl, audit, report, provider, aut
 - Full crawl → audit → report pipeline
 - Google Search Console integration (sites list, query pages/keywords, opportunity seeds)
 - OAuth2 authentication flow for GSC with token persistence
-- SerpAPI SERP analysis adapter with cost estimation
+- SERP analysis adapters (SerpAPI and DataForSEO)
+- AEO and GEO command groups backed by DataForSEO
+- Labs command group is planned next for DataForSEO Labs endpoints (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`)
 - Cost-aware execution contracts (`estimated_cost`, `requires_approval`, `cached`, `source`, `fetched_at`)
 - `--dry-run` support for paid workflows
 - File-based response caching with TTL
@@ -40,7 +42,7 @@ Phase three is complete. The CLI has working crawl, audit, report, provider, aut
 - CLI framework: Cobra
 - Entry point: `cmd/sageo/main.go`
 - Root command wiring: `internal/cli/root.go`
-- Command files: `internal/cli/commands/*.go`
+- Command files: `internal/cli/commands/*.go` (planned addition: `labs.go`)
 - Config package: `internal/common/config`
 - Cost package: `internal/common/cost`
 - Cache package: `internal/common/cache`
@@ -48,7 +50,8 @@ Phase three is complete. The CLI has working crawl, audit, report, provider, aut
 - Provider package: `internal/provider`
 - Auth package: `internal/auth`
 - GSC package: `internal/gsc`
-- SERP package: `internal/serp` (adapter: `internal/serp/serpapi`)
+- SERP package: `internal/serp` (adapters: `internal/serp/serpapi`, `internal/serp/dataforseo`)
+- DataForSEO shared client: `internal/dataforseo`
 - Opportunities package: `internal/opportunities`
 - Domain packages: `internal/crawl`, `internal/audit`, `internal/report`
 
@@ -80,6 +83,8 @@ Supported env overrides:
 - `SAGEO_ORGANIZATION_ID`
 - `SAGEO_SERP_PROVIDER`
 - `SAGEO_SERP_API_KEY`
+- `SAGEO_DATAFORSEO_LOGIN`
+- `SAGEO_DATAFORSEO_PASSWORD`
 - `SAGEO_APPROVAL_THRESHOLD_USD`
 - `SAGEO_GSC_PROPERTY`
 - `SAGEO_GSC_CLIENT_ID`

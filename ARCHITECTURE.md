@@ -2,7 +2,7 @@
 
 ## Overview
 
-Sageo CLI is a Go + Cobra single-binary command-line tool for SEO, AEO, and GEO operations. It uses a provider abstraction for HTTP fetching, a BFS crawler for page discovery, a rule-based audit engine, JSON report storage, Google Search Console integration, SERP analysis via SerpAPI, and an opportunity detection layer that merges signals from multiple sources.
+Sageo CLI is a Go + Cobra single-binary command-line tool for SEO, AEO, and GEO operations. It provides website crawling, rule-based SEO auditing, JSON report generation, Google Search Console integration, SERP analysis via SerpAPI or DataForSEO, and opportunity detection that merges signals from multiple sources.
 
 ## Data Flow
 
@@ -24,6 +24,13 @@ The `crawl run` command stops after crawling. The `audit run` command runs crawl
 - `gsc` — Google Search Console (`sites list`, `sites use`, `query pages`, `query keywords`, `opportunities`)
 - `serp` — SERP analysis (`analyze`, `compare`) — paid, supports `--dry-run`
 - `opportunities` — merged opportunity detection from GSC + optional SERP enrichment
+- `aeo` — Answer Engine Optimization (`responses`, `keywords`) — paid, supports `--dry-run`
+- `geo` — Generative Engine Optimization (`mentions`, `top-pages`) — paid, supports `--dry-run`
+- `login` — interactive credential setup
+- `logout` — clear stored credentials
+
+### Planned next command group
+- `labs` — DataForSEO Labs intelligence (planned): `ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`
 
 Global flags:
 - `--output, -o` (`json`, `text`, `table`) default `json`
@@ -42,7 +49,7 @@ Version is injected via ldflags in build/release flows.
 ### `internal/provider`
 Provider abstraction layer:
 - `provider.go`: `Fetcher` interface, registry, and `NewFetcher` constructor.
-- `local/local.go`: Built-in `net/http` fetcher with configurable timeout and User-Agent.
+- `local/local.go`: built-in `net/http` fetcher with configurable timeout and User-Agent.
 
 The registry pattern allows future providers to register via `init()`.
 
@@ -57,13 +64,13 @@ BFS website crawler:
 SEO audit engine:
 - `types.go`: `Severity`, `Issue`, `Request`, `Result` types.
 - `service.go`: `Service` interface and `NewService` constructor.
-- `checker.go`: Individual check functions for title, meta description, H1, image alt, canonical, and status code.
-- `engine.go`: Runs all checkers across crawl results and computes a 0–100 score.
+- `checker.go`: individual check functions for title, meta description, H1, image alt, canonical, and status code.
+- `engine.go`: runs all checkers across crawl results and computes a 0–100 score.
 
 ### `internal/report`
 Report generation and storage:
 - `service.go`: `Service` interface (with `Generate` and `List` methods), `Request`, `Result`, `ReportMeta` types.
-- `generator.go`: Writes JSON reports to `~/.config/sageo/reports/` and reads stored report metadata.
+- `generator.go`: writes JSON reports to `~/.config/sageo/reports/` and reads stored report metadata.
 
 ### `internal/auth`
 OAuth token store:
@@ -91,6 +98,21 @@ SerpAPI adapter:
 - JSON response parsing with domain extraction
 - `WithBaseURL` and `WithHTTPClient` options for testing
 
+### `internal/dataforseo`
+Shared DataForSEO HTTP client:
+- Basic Auth credential handling
+- Configurable base URL and HTTP client
+- Reused by AEO, GEO, and DataForSEO-backed SERP commands
+
+### `internal/serp/dataforseo`
+DataForSEO SERP adapter:
+- Implements `serp.Provider`
+- Uses DataForSEO organic search endpoint
+- Provider-selected in CLI via `serp_provider = "dataforseo"`
+
+### Planned package addition
+- `internal/cli/commands/labs.go` (planned) for DataForSEO Labs command implementations
+
 ### `internal/opportunities`
 Opportunity detection and merge logic:
 - `Merge`: combines GSC seeds with optional SERP evidence
@@ -102,14 +124,14 @@ Opportunity detection and merge logic:
 Config management:
 - Path resolution (`SAGEO_CONFIG` override + XDG-style fallback)
 - `Load` and `Save`
-- Env override hooks for all keys including GSC/SERP/approval settings
-- Secret redaction for safe display (API keys, client secrets)
+- Env override hooks for all keys including GSC, SERP, DataForSEO, and approval settings
+- Secret redaction for safe display (API keys, client secrets, passwords)
 
 ### `internal/common/cost`
 Cost estimation and approval gates:
 - `BuildEstimate`: computes cost from unit pricing
 - `EvaluateApproval`: blocks execution when estimated cost exceeds threshold
-- Used by SERP and opportunities commands
+- Used by paid commands (`serp`, `opportunities` when enriched, `aeo`, `geo`)
 
 ### `internal/common/cache`
 File-based response caching:
@@ -134,6 +156,8 @@ Keys:
 - `organization_id`
 - `serp_provider` — SERP data provider (default: `serpapi`)
 - `serp_api_key` (redacted on read/show)
+- `dataforseo_login` (redacted on read/show)
+- `dataforseo_password` (redacted on read/show)
 - `approval_threshold_usd` — cost gate threshold; 0 means no gate
 - `gsc_property` — active GSC property URL
 - `gsc_client_id` (redacted on read/show)
@@ -142,15 +166,13 @@ Keys:
 Default file: `~/.config/sageo/config.json`
 Override: `SAGEO_CONFIG` (must be absolute `.json` path)
 
-## Cost-Aware Execution Model (Phase 3)
-
-Phase 3 added a cost-aware execution model for paid API calls:
+## Cost-Aware Execution Model
 
 ### Free-first, paid-second
 Recommended execution order:
 1. Local crawl/audit (free)
 2. Google Search Console data (free, requires OAuth)
-3. Paid SERP lookups only for narrowed, high-value checks
+3. Paid lookups only for narrowed, high-value checks (SERP/AEO/GEO)
 
 ### Cost metadata
 Paid commands expose machine-readable metadata:
@@ -169,7 +191,7 @@ When `approval_threshold_usd` is set (> 0), any paid command whose estimated cos
 Paid responses are cached to `~/.config/sageo/cache/` with configurable TTL. Cache hits are reflected in output metadata and avoid repeat charges.
 
 ### Why this matters
-`sageo-cli` is designed for AI agents. The CLI collects, normalizes, and prices the evidence. The external AI agent decides what to do next.
+`sageo-cli` is designed for AI agents. The CLI collects, normalizes, and prices evidence. The external AI agent decides what to do next.
 
 ## Build and Release
 

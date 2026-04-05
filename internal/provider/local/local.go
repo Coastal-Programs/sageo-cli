@@ -77,7 +77,9 @@ func (f *Fetcher) Fetch(ctx context.Context, url string) (provider.FetchResult, 
 		}
 		return provider.FetchResult{}, fmt.Errorf("fetching %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {

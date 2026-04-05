@@ -48,8 +48,9 @@ vet:
 
 ## lint: Run golangci-lint (installs if missing)
 lint:
-	@which golangci-lint > /dev/null 2>&1 || go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	golangci-lint run ./...
+	@which golangci-lint > /dev/null 2>&1 || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	@LINT_BIN=$$(which golangci-lint 2>/dev/null || echo "$$(go env GOPATH)/bin/golangci-lint"); \
+	$$LINT_BIN run ./...
 
 ## check: Run fmt, vet, and lint (pre-commit gate)
 check: fmt vet lint
