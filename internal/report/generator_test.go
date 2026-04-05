@@ -59,9 +59,9 @@ func TestListReturnsStoredReports(t *testing.T) {
 	// Generate two reports
 	_, err := svc.Generate(context.Background(), Request{
 		AuditResult: audit.Result{
-			TargetURL: "https://example.com",
-			Score:     90,
-			PageCount: 1,
+			TargetURL:  "https://example.com",
+			Score:      90,
+			PageCount:  1,
 			IssueCount: map[audit.Severity]int{},
 		},
 		OutputDir: dir,

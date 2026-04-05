@@ -27,10 +27,10 @@ type Request struct {
 
 // Result defines outputs for an audit operation.
 type Result struct {
-	TargetURL  string              `json:"target_url"`
-	Score      float64             `json:"score"`
-	Issues     []Issue             `json:"issues"`
-	PageCount  int                 `json:"page_count"`
-	IssueCount map[Severity]int    `json:"issue_count"`
-	Pages      []crawl.PageResult  `json:"pages"`
+	TargetURL  string             `json:"target_url"`
+	Score      float64            `json:"score"`
+	Issues     []Issue            `json:"issues"`
+	PageCount  int                `json:"page_count"`
+	IssueCount map[Severity]int   `json:"issue_count"`
+	Pages      []crawl.PageResult `json:"pages"`
 }
