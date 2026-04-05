@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-04-05
+
+### Added
+- **DataForSEO shared HTTP client**: `internal/dataforseo/client.go` — Basic Auth credential handling, configurable base URL and HTTP client, used by all DataForSEO-backed commands.
+- **DataForSEO SERP adapter**: `internal/serp/dataforseo` — implements `serp.Provider` against `/v3/serp/google/organic/live/regular`. Wired into `serpProvider()` alongside SerpAPI; selected via `serp_provider = "dataforseo"` config key.
+- **`sageo aeo` command group** (Answer Engine Optimization):
+  - `aeo responses` — query ChatGPT, Claude, Gemini, or Perplexity with a prompt and see the AI response. Supports `--model`, `--dry-run`, cost estimation, and approval gate.
+  - `aeo keywords` — retrieve AI search volume data for a keyword from DataForSEO's AI Keyword Data endpoint. Includes cost estimation and approval gate.
+- **`sageo geo` command group** (Generative Engine Optimization):
+  - `geo mentions` — track how often a domain or brand is mentioned in AI-generated responses for a keyword (DataForSEO LLM Mentions). Supports `--domain`, `--platform`, `--dry-run`, cost estimation, and approval gate.
+  - `geo top-pages` — show which pages are most cited by AI engines for a keyword (LLM Mentions Top Pages).
+- **`sageo login`** — interactive multi-service credential setup. Prompts for Google Search Console (OAuth), DataForSEO (login + password), and SerpAPI (API key) in a single guided flow.
+- **`sageo logout`** — clears all stored credentials: OAuth tokens, DataForSEO login/password, SerpAPI key, and GSC client credentials.
+- **New config keys**: `dataforseo_login`, `dataforseo_password` with `Set`/`Get`/`Redacted` support and `SAGEO_DATAFORSEO_LOGIN` / `SAGEO_DATAFORSEO_PASSWORD` env overrides.
+- **New error codes**: `DATAFORSEO_FAILED`, `AEO_FAILED`, `GEO_FAILED`.
+- **Wiring trace** (`.gg/plans/trace-phase4-dataforseo.md`): 10 paths traced, 5 gaps identified and queued as tasks.
+
+### Changed
+- `opportunities` command updated to detect DataForSEO credentials and use the correct provider and cost basis (`$0.002/query`) when enriching with SERP data.
+- `serpProvider()` in `serp.go` now routes to DataForSEO when `serp_provider = "dataforseo"` is configured.
+- `fetchSERPForSeeds()` in `opportunities.go` selects provider dynamically based on config rather than hardcoding SerpAPI.
+- `sageo login` updated: DataForSEO is option 2, SerpAPI moved to option 3.
+
+### Known issues (queued for next phase)
+- `aeo responses` sends `prompt` instead of `user_prompt` — will return empty results against the live API.
+- `aeo responses` response decoder expects a flat `response` field; actual API returns data in `items[].sections[]`.
+- `geo mentions` request body uses wrong shape — `keyword`/`domain` should be inside a `target` array.
+- `serpProvider()` auto-fallback condition (`SERPProvider == ""`) is unreachable in practice; `NewDefault()` always sets `"serpapi"`.
+- `sageo login` DataForSEO flow does not set `serp_provider = "dataforseo"` after saving credentials.
+
 ## [0.3.0] - 2026-04-05
 
 ### Added
