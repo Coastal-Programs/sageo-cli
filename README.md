@@ -38,6 +38,26 @@ make build
 
 Requires Go 1.26+.
 
+### Run without installing globally
+
+```bash
+go run ./cmd/sageo --help
+go run ./cmd/sageo login
+```
+
+### Install globally (dev)
+
+```bash
+make install
+export PATH="$HOME/go/bin:$PATH"
+
+# verify
+which sageo
+sageo --help
+```
+
+> Add `export PATH="$HOME/go/bin:$PATH"` to `~/.zshrc` (or your shell profile) to make this permanent.
+
 ## Setup
 
 ```bash
