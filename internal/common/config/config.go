@@ -24,6 +24,7 @@ type Config struct {
 	GSCProperty          string  `json:"gsc_property"`
 	GSCClientID          string  `json:"gsc_client_id"`
 	GSCClientSecret      string  `json:"gsc_client_secret"`
+	PSIAPIKey            string  `json:"psi_api_key"`
 }
 
 var (
@@ -139,6 +140,8 @@ func (c *Config) Set(key, value string) error {
 		c.GSCClientID = value
 	case "gsc_client_secret", "gsc-client-secret":
 		c.GSCClientSecret = value
+	case "psi_api_key", "psi-api-key":
+		c.PSIAPIKey = value
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -172,6 +175,8 @@ func (c *Config) Get(key string) (string, error) {
 		return redact(c.GSCClientID), nil
 	case "gsc_client_secret", "gsc-client-secret":
 		return redact(c.GSCClientSecret), nil
+	case "psi_api_key", "psi-api-key":
+		return redact(c.PSIAPIKey), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}
@@ -192,6 +197,7 @@ func (c *Config) Redacted() map[string]any {
 		"gsc_property":           c.GSCProperty,
 		"gsc_client_id":          redact(c.GSCClientID),
 		"gsc_client_secret":      redact(c.GSCClientSecret),
+		"psi_api_key":            redact(c.PSIAPIKey),
 	}
 }
 
@@ -233,6 +239,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SAGEO_GSC_CLIENT_SECRET"); v != "" {
 		c.GSCClientSecret = v
+	}
+	if v := os.Getenv("SAGEO_PSI_API_KEY"); v != "" {
+		c.PSIAPIKey = v
 	}
 }
 

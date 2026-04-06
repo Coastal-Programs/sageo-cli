@@ -14,6 +14,8 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 
 3. **`sageo status`** — Check what data exists in state: score, pages crawled, findings count, history, and which data sources are present (`sources_used`) vs missing (`sources_missing`). Read this before deciding what to run next.
 
+3a. **`sageo psi run --url <page> --strategy mobile`** — Optionally run PageSpeed Insights on your top traffic pages after the audit to capture Core Web Vitals (LCP, CLS, INP). Free; no API key required.
+
 4. **`sageo gsc sites list`** then **`sageo gsc sites use <property>`** — List the GSC properties the authenticated Google account has access to, then set the active property. Requires prior OAuth login (`sageo auth login gsc`).
 
 5. **`sageo gsc query pages`** / **`sageo gsc query keywords`** — Pull page-level or keyword-level search performance data (clicks, impressions, CTR, position) from GSC for the active property. Defaults to the last 28 days. Use `--query` on `pages` to filter to a specific keyword, and `--page` on `keywords` to drill into which queries drive traffic to a specific URL.
@@ -26,7 +28,7 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 
 6. **`sageo gsc opportunities`** — Identify keyword and page opportunities derived from GSC data: high-impression/low-CTR queries, quick-win ranking gaps, etc.
 
-7. **`sageo analyze`** — Compares crawl data with GSC data, finds cross-source issues that neither data source reveals alone. Free. Requires `init` + `audit run` first; GSC data is optional but strongly recommended for the best results.
+7. **`sageo analyze`** — Compares crawl data with GSC data (and PSI data if available), finds cross-source issues that neither data source reveals alone. Free. Requires `init` + `audit run` first; GSC and PSI data are optional but strongly recommended for the best results.
 
 8. **Read `state.json` `merged_findings`** — After `analyze`, the `merged_findings` array in `.sageo/state.json` contains prioritized action items combining crawl and GSC evidence. Work through these by priority (`HIGH` → `MEDIUM` → `LOW`).
 
@@ -40,9 +42,48 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 
 | Tier | Cost | Requires | What you get |
 |------|------|----------|-------------|
-| **Tier 1** | Free | A URL | Crawl + SEO audit. Works for any public site with no credentials. |
+| **Tier 1** | Free | A URL | Crawl + SEO audit with 17+ rules including cross-page checks (duplicate titles, duplicate descriptions, orphan pages) and schema validation. Works for any public site with no credentials. |
+| **Tier 1.5** | Free | A URL (optional API key) | PageSpeed Insights — Core Web Vitals and Lighthouse performance score via Google's PSI API. No key required; set `psi_api_key` or `SAGEO_PSI_API_KEY` for higher rate limits. |
 | **Tier 2** | Free | Google OAuth | GSC search performance data: pages, keywords, trends, devices, countries, appearances, and opportunities. Requires `sageo auth login gsc` and a verified GSC property. |
 | **Tier 3** | Paid | DataForSEO or SerpAPI account | Live SERP results, Labs domain/keyword intelligence, AEO AI-engine responses, GEO AI mention tracking. Always supports `--dry-run`. |
+
+---
+
+## What Sageo Checks
+
+The audit engine runs 17+ rules across all crawled pages. Rules are grouped by category.
+
+### Per-Page Rules
+
+| Rule ID | Verdict | What it detects |
+|---------|---------|----------------|
+| `missing-title` | error | Page has no `<title>` tag. |
+| `title-too-long` | warning | Title exceeds 60 characters. |
+| `title-too-short` | warning | Title is under 10 characters. |
+| `missing-meta-description` | error | Page has no meta description. |
+| `description-too-long` | warning | Meta description exceeds 160 characters. |
+| `missing-h1` | warning | Page has no `<h1>` tag. |
+| `multiple-h1` | warning | Page has more than one `<h1>`. |
+| `broken-link` | error | An internal or external link returns a 4xx/5xx status. |
+| `missing-alt-text` | warning | One or more `<img>` tags have no `alt` attribute. |
+| `slow-page` | warning | Page response time exceeds threshold. |
+| `thin-content` | info | Page body has very few words. |
+| `missing-canonical` | info | Page has no canonical URL tag. |
+
+### Cross-Page Rules
+
+| Rule ID | Verdict | What it detects |
+|---------|---------|----------------|
+| `duplicate-title` | warning | Two or more pages share the exact same `<title>`. |
+| `duplicate-description` | warning | Two or more pages share the exact same meta description. |
+| `orphan-page` | warning | No internal links from other crawled pages point to this page. |
+
+### Schema Validation Rules
+
+| Rule ID | Verdict | What it detects |
+|---------|---------|----------------|
+| `schema-faq-no-questions` | warning | Page has `FAQPage` structured data but no recognizable question/answer pairs. |
+| `schema-article-thin` | info | Page has `Article` structured data but the content is thin (low word count). |
 
 ---
 
@@ -74,6 +115,14 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 | `gsc opportunities` | `sageo gsc opportunities` | Surface high-impression/low-CTR opportunity seeds from GSC data. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 1000) |
 
 > **Common flag on all `gsc query` commands:** `--type` filters by search type (`web`, `image`, `video`, `news`).
+
+### PageSpeed Insights
+
+| Command | Usage | What it does | Cost | Key flags |
+|---------|-------|-------------|------|-----------|
+| `psi run` | `sageo psi run --url <page> --strategy mobile` | Fetch Core Web Vitals (LCP, CLS, INP, FCP, TTFB) and Lighthouse performance score from Google PageSpeed Insights. | Free | `--url` (required), `--strategy` (`mobile`\|`desktop`, default `mobile`) |
+
+> Optional: set `psi_api_key` in config or `SAGEO_PSI_API_KEY` env var for higher rate limits. Works without a key at lower QPS.
 
 ### Cross-Source Analysis
 

@@ -155,3 +155,62 @@ func TestLoadMissing(t *testing.T) {
 		t.Fatal("expected error loading from empty dir, got nil")
 	}
 }
+
+func TestSourcesIncludesPSI(t *testing.T) {
+	s := &State{
+		LastCrawl: "2025-01-01T00:00:00Z",
+		GSC: &GSCData{
+			LastPull: "2025-01-01T00:00:00Z",
+		},
+		PSI: &PSIData{
+			LastRun: "2025-01-01T00:00:00Z",
+		},
+	}
+
+	used, missing := s.Sources()
+
+	containsAll := func(slice []string, items ...string) bool {
+		set := make(map[string]bool, len(slice))
+		for _, v := range slice {
+			set[v] = true
+		}
+		for _, item := range items {
+			if !set[item] {
+				return false
+			}
+		}
+		return true
+	}
+
+	if !containsAll(used, "crawl", "gsc", "psi") {
+		t.Errorf("Sources().used = %v, want crawl, gsc, psi", used)
+	}
+	for _, m := range missing {
+		if m == "psi" {
+			t.Errorf("psi should not appear in missing when PSI data is present")
+		}
+	}
+}
+
+func TestSourcesMissingPSI(t *testing.T) {
+	s := &State{
+		LastCrawl: "2025-01-01T00:00:00Z",
+		GSC: &GSCData{
+			LastPull: "2025-01-01T00:00:00Z",
+		},
+		// PSI intentionally nil
+	}
+
+	_, missing := s.Sources()
+
+	found := false
+	for _, m := range missing {
+		if m == "psi" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("psi should appear in missing when PSI data is absent")
+	}
+}

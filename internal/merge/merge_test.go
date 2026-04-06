@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jakeschepis/sageo-cli/internal/state"
@@ -181,6 +182,91 @@ func TestURLNormalizationMatching(t *testing.T) {
 	// not-indexed must NOT fire — the page is present in GSC after normalization.
 	if ni := findRule(results, "not-indexed"); ni != nil {
 		t.Errorf("not-indexed should not fire when a GSC row exists for the normalized URL")
+	}
+}
+
+// TestSlowCoreWebVitals: page has PSI score < 50 AND GSC impressions → expect
+// "slow-core-web-vitals" merged finding.
+func TestSlowCoreWebVitals(t *testing.T) {
+	const pageURL = "https://example.com/slow"
+
+	st := buildState(
+		[]state.Finding{},
+		[]state.GSCRow{
+			{Key: pageURL, Impressions: 200, Clicks: 5, CTR: 0.025, Position: 8},
+		},
+	)
+	st.PSI = &state.PSIData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Pages: []state.PSIResult{
+			{URL: pageURL, PerformanceScore: 28, LCP: 6500, CLS: 0.05, Strategy: "mobile"},
+		},
+	}
+
+	results := Run(st)
+
+	f := findRule(results, "slow-core-web-vitals")
+	if f == nil {
+		t.Fatalf("expected finding %q, got: %v", "slow-core-web-vitals", results)
+	}
+	if f.GSCData == nil {
+		t.Fatal("expected GSCData to be populated on the finding")
+	}
+	if f.GSCData.Impressions != 200 {
+		t.Errorf("GSCData.Impressions = %.0f, want 200", f.GSCData.Impressions)
+	}
+	// Fix should mention LCP since it's above the 4000 ms poor threshold.
+	if !strings.Contains(f.Fix, "LCP") {
+		t.Errorf("Fix message should mention LCP; got: %s", f.Fix)
+	}
+}
+
+// TestSlowCoreWebVitalsNoFire: PSI score < 50 but no GSC impressions →
+// "slow-core-web-vitals" must NOT fire (no ranking potential to lose).
+func TestSlowCoreWebVitalsNoFire(t *testing.T) {
+	const pageURL = "https://example.com/ghost"
+
+	st := buildState(
+		[]state.Finding{},
+		[]state.GSCRow{
+			{Key: "https://example.com/other", Impressions: 100, Clicks: 10},
+		},
+	)
+	st.PSI = &state.PSIData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Pages: []state.PSIResult{
+			{URL: pageURL, PerformanceScore: 20, LCP: 7000, CLS: 0.3, Strategy: "mobile"},
+		},
+	}
+
+	results := Run(st)
+
+	if f := findRule(results, "slow-core-web-vitals"); f != nil {
+		t.Errorf("slow-core-web-vitals should not fire when page has no GSC impressions; got: %v", f)
+	}
+}
+
+// TestSlowCoreWebVitalsGoodScore: PSI score >= 50 → rule must not fire.
+func TestSlowCoreWebVitalsGoodScore(t *testing.T) {
+	const pageURL = "https://example.com/ok"
+
+	st := buildState(
+		[]state.Finding{},
+		[]state.GSCRow{
+			{Key: pageURL, Impressions: 300, Clicks: 20, CTR: 0.07, Position: 4},
+		},
+	)
+	st.PSI = &state.PSIData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Pages: []state.PSIResult{
+			{URL: pageURL, PerformanceScore: 72, LCP: 1800, CLS: 0.02, Strategy: "mobile"},
+		},
+	}
+
+	results := Run(st)
+
+	if f := findRule(results, "slow-core-web-vitals"); f != nil {
+		t.Errorf("slow-core-web-vitals should not fire when performance score >= 50; got: %v", f)
 	}
 }
 

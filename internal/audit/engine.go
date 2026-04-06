@@ -46,6 +46,24 @@ func (e *engine) Run(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 
+	crossPageIssues := checkDuplicateTitles(req.CrawlResult.Pages)
+	allIssues = append(allIssues, crossPageIssues...)
+	for _, issue := range crossPageIssues {
+		issueCount[issue.Severity]++
+	}
+
+	dupDescIssues := checkDuplicateDescriptions(req.CrawlResult.Pages)
+	allIssues = append(allIssues, dupDescIssues...)
+	for _, issue := range dupDescIssues {
+		issueCount[issue.Severity]++
+	}
+
+	orphanIssues := checkOrphanPages(req.CrawlResult.Pages)
+	allIssues = append(allIssues, orphanIssues...)
+	for _, issue := range orphanIssues {
+		issueCount[issue.Severity]++
+	}
+
 	score := computeScore(allIssues, len(req.CrawlResult.Pages))
 
 	return Result{

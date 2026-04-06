@@ -23,4 +23,5 @@ const (
 	ErrAEOFailed         = "AEO_FAILED"
 	ErrGEOFailed         = "GEO_FAILED"
 	ErrLabsFailed        = "LABS_FAILED"
+	ErrPSIFailed         = "PSI_FAILED"
 )

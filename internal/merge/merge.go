@@ -41,6 +41,22 @@ func Run(st *state.State) []MergedFinding {
 		return nil
 	}
 
+	// Index PSI results by URL (strategy-agnostic: use the worst-scoring entry
+	// per URL so we surface the most severe performance problem).
+	psiByURL := make(map[string]*state.PSIResult)
+	if st.PSI != nil {
+		for i := range st.PSI.Pages {
+			p := &st.PSI.Pages[i]
+			norm := urlnorm.Normalize(p.URL)
+			if norm == "" {
+				continue
+			}
+			if existing, ok := psiByURL[norm]; !ok || p.PerformanceScore < existing.PerformanceScore {
+				psiByURL[norm] = p
+			}
+		}
+	}
+
 	// Index GSC top-pages by normalized URL.
 	gscByURL := make(map[string]*GSCMetrics, len(st.GSC.TopPages))
 	for _, row := range st.GSC.TopPages {
@@ -190,6 +206,39 @@ func Run(st *state.State) []MergedFinding {
 		}
 	}
 
+	// --- Rule 6: slow-core-web-vitals ---
+	// Only fire when PSI data exists in state.
+	if len(psiByURL) > 0 {
+		for normURL, psiResult := range psiByURL {
+			if psiResult.PerformanceScore >= 50 {
+				continue
+			}
+			gsc, inGSC := gscByURL[normURL]
+			if !inGSC || gsc.Impressions == 0 {
+				continue
+			}
+
+			// Identify the worst metric to name in the fix message.
+			slowMetric := slowestMetric(psiResult)
+
+			results = append(results, MergedFinding{
+				Rule:    "slow-core-web-vitals",
+				URL:     normURL,
+				Sources: []string{"psi", "gsc"},
+				GSCData: gsc,
+				Verdict: "high",
+				Why: fmt.Sprintf(
+					"Performance score is %.0f/100 — this page is losing ranking potential (%.0f GSC impressions)",
+					psiResult.PerformanceScore, gsc.Impressions,
+				),
+				Fix: fmt.Sprintf(
+					"Fix %s first: %s is the primary bottleneck. Use Lighthouse or PageSpeed Insights for a full audit.",
+					slowMetric.name, slowMetric.detail,
+				),
+			})
+		}
+	}
+
 	// Assign priority scores to all findings.
 	for i := range results {
 		results[i].PriorityScore, results[i].Priority = scoreFinding(&results[i])
@@ -201,6 +250,46 @@ func Run(st *state.State) []MergedFinding {
 	})
 
 	return results
+}
+
+// metricInfo holds a human-readable name and detail string for a CWV metric.
+type metricInfo struct {
+	name   string
+	detail string
+}
+
+// slowestMetric identifies the worst Core Web Vital in a PSI result and returns
+// a human-readable description for use in a fix recommendation.
+func slowestMetric(p *state.PSIResult) metricInfo {
+	// LCP thresholds: >4000 ms is poor; CLS >0.25 is poor.
+	// We rank LCP first (most impactful for ranking) unless CLS is severely bad.
+	lcpPoor := p.LCP > 4000
+	clsPoor := p.CLS > 0.25
+
+	switch {
+	case lcpPoor && clsPoor:
+		return metricInfo{
+			name:   "LCP and CLS",
+			detail: fmt.Sprintf("LCP is %.0f ms (target <2500 ms) and CLS is %.2f (target <0.10)", p.LCP, p.CLS),
+		}
+	case lcpPoor:
+		return metricInfo{
+			name:   "LCP",
+			detail: fmt.Sprintf("Largest Contentful Paint is %.0f ms (target <2500 ms)", p.LCP),
+		}
+	case clsPoor:
+		return metricInfo{
+			name:   "CLS",
+			detail: fmt.Sprintf("Cumulative Layout Shift is %.2f (target <0.10)", p.CLS),
+		}
+	default:
+		// Score is poor but no single metric crossed the "poor" threshold —
+		// report overall score and recommend a full Lighthouse run.
+		return metricInfo{
+			name:   "overall performance",
+			detail: fmt.Sprintf("performance score is %.0f/100 — run Lighthouse for a detailed breakdown", p.PerformanceScore),
+		}
+	}
 }
 
 // scoreFinding computes a numeric priority score and label for a merged finding.

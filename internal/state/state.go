@@ -47,6 +47,21 @@ type HistoryEntry struct {
 	Detail    string `json:"detail,omitempty"`
 }
 
+// PSIResult holds a single PageSpeed Insights result for one URL.
+type PSIResult struct {
+	URL              string  `json:"url"`
+	PerformanceScore float64 `json:"performance_score"`
+	LCP              float64 `json:"lcp_ms"`
+	CLS              float64 `json:"cls"`
+	Strategy         string  `json:"strategy"`
+}
+
+// PSIData holds all PageSpeed Insights results saved to state.
+type PSIData struct {
+	LastRun string      `json:"last_run,omitempty"`
+	Pages   []PSIResult `json:"pages,omitempty"`
+}
+
 // State is the single project file the AI reads and writes.
 type State struct {
 	Site           string          `json:"site"`
@@ -58,6 +73,7 @@ type State struct {
 	MergedFindings json.RawMessage `json:"merged_findings,omitempty"`
 	LastAnalysis   string          `json:"last_analysis,omitempty"`
 	GSC            *GSCData        `json:"gsc,omitempty"`
+	PSI            *PSIData        `json:"psi,omitempty"`
 	History        []HistoryEntry  `json:"history,omitempty"`
 }
 
@@ -138,6 +154,12 @@ func (s *State) Sources() (used []string, missing []string) {
 		used = append(used, "gsc")
 	} else {
 		missing = append(missing, "gsc")
+	}
+
+	if s.PSI != nil && s.PSI.LastRun != "" {
+		used = append(used, "psi")
+	} else {
+		missing = append(missing, "psi")
 	}
 
 	return used, missing

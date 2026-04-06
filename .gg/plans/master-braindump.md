@@ -385,6 +385,43 @@ Full end-to-end test of the complete `init → audit → gsc → analyze` merge 
 
 **Phase 3 conclusion:** The full merge pipeline works correctly against live data. URL normalization, priority scoring, source attribution, and state persistence all function as designed.
 
+### Phase 4 — New audit rules + PSI + merged flow — coastalprograms.com — 2026-04-06
+
+**Build & quality gate:**
+- `go build -o /tmp/sageo-ph4 ./cmd/sageo` ✅ — clean build
+- `go test ./...` ✅ — all 18 packages pass
+- `go vet ./...` ✅ — clean
+
+**New audit rules tested against live data:**
+- `duplicate-title` — 4 issues found ✅ (contact, apollo, smokohub, zeus all share "Australia" as title — real bug on the site)
+- `schema-detected-BreadcrumbList` — 21 detections ✅ (correctly flags schema types found on pages)
+- `og-image-missing` — 1 issue on /products ✅
+- `meta-description-too-long` — 17 issues ✅ (systemic, same as before)
+- `title-too-long` — 17 issues ✅ (systemic)
+- `slow-response` — 10 issues ✅
+- `duplicate-description` — 0 issues (descriptions are all unique on this site — correct behavior)
+- `orphan-page` — 0 issues (all pages well-linked — correct behavior)
+- Total: 70 findings across 23 pages, score 74.3/100
+
+**PSI testing:**
+- PSI command structure verified: `psi run --url <url> --strategy mobile|desktop` ✅
+- Unit tests pass (3/3): parseResponse, RunSuccess (mock), InvalidStrategy ✅
+- Live PSI API: 429 rate-limited (unauthenticated Google PSI API has very low rate limit)
+- Requires `SAGEO_PSI_API_KEY` env var or config for reliable live use
+- Command correctly returns structured error: `{"code": "PSI_FAILED", "detail": "...status 429"}`
+- State integration code reviewed: correctly upserts PSI results keyed by URL+strategy
+
+**Full merged flow (without PSI — rate-limited):**
+1. `init --url` ✅ → state.json created
+2. `audit run --depth 2 --max-pages 50` ✅ → 23 pages, 70 findings, score 74.3
+3. `analyze` ✅ → 0 merged findings (no GSC/PSI data available — correct behavior)
+4. `status` ✅ → `sources_used: ["crawl"]`, `sources_missing: ["gsc", "psi"]`
+5. State.json keys verified: site, initialized, last_crawl, score, pages_crawled, findings (70), merged_findings, last_analysis, history
+
+**Final test run:** `go test ./...` ✅ — all pass
+
+**Phase 4 conclusion:** All new audit rules work correctly against live data. Duplicate-title detection caught a real issue (4 pages sharing generic "Australia" title). PSI code is correct but requires API key for live use (free tier rate-limits aggressively). Merge pipeline handles graceful degradation when data sources are missing.
+
 ### Commands not yet tested
 - serp analyze/compare
 - aeo responses/keywords
