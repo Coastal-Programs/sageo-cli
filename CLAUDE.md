@@ -117,3 +117,28 @@ make install
 ```
 
 If `sageo` is not found after install, ensure `~/go/bin` is on PATH and reload shell config.
+
+## Lightweight Release Policy
+
+Default release flow should stay lightweight (avoid costly multi-platform packaging unless explicitly requested):
+
+1. Run fast checks:
+   - `go vet ./...`
+   - `go test -race ./...`
+2. Commit and push to `main`
+3. Create/push a semver tag (patch bump)
+4. Create a GitHub Release from the tag **without** attached binary assets
+
+Only run `make release` when explicitly asked to produce packaged binaries.
+
+## Commit Message Quality Policy
+
+Every commit should include a clear summary of what changed in the project:
+
+- Subject line: one line, starts with `Add`, `Update`, `Fix`, `Remove`, or `Refactor`
+- Body: short bullet points grouped under relevant sections (omit empty sections):
+  - `Added:`
+  - `Updated:`
+  - `Fixed:`
+  - `Docs:`
+- Bullets must describe concrete changes (file/function/behavior), not generic wording.
