@@ -26,11 +26,13 @@ const (
 )
 
 var (
-	loginHeaderStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#1D4ED8")).Bold(true)
-	loginSubtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#2563EB"))
-	loginSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#0F766E")).Bold(true)
-	loginInfoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#1E40AF"))
-	loginErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#B91C1C")).Bold(true)
+	loginHeaderStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#1D4ED8")).Bold(true)
+	loginSubtleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#2563EB"))
+	loginSuccessStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#0F766E")).Bold(true)
+	loginInfoStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#1E40AF"))
+	loginErrorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#B91C1C")).Bold(true)
+	loginConfirmedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#16A34A")).Bold(true)
+	loginNotConfigStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
 )
 
 var errBackToMenu = errors.New("back to menu")
@@ -364,9 +366,9 @@ func printLoginSummary() {
 
 func buildLoginSummaryLines(cfg *config.Config) []string {
 	lines := []string{
-		fmt.Sprintf("  • Google Search Console: %s", serviceSummaryStatus(isGSCConfigured(cfg), redactValue(cfg.GSCClientID))),
-		fmt.Sprintf("  • DataForSEO: %s", serviceSummaryStatus(isDataForSEOConfigured(cfg), cfg.DataForSEOLogin)),
-		fmt.Sprintf("  • SerpAPI: %s", serviceSummaryStatus(isSerpAPIConfigured(cfg), redactValue(cfg.SERPAPIKey))),
+		summaryLine("Google Search Console", isGSCConfigured(cfg), redactValue(cfg.GSCClientID)),
+		summaryLine("DataForSEO", isDataForSEOConfigured(cfg), cfg.DataForSEOLogin),
+		summaryLine("SerpAPI", isSerpAPIConfigured(cfg), redactValue(cfg.SERPAPIKey)),
 	}
 
 	if cfg.SERPProvider != "" {
@@ -376,14 +378,22 @@ func buildLoginSummaryLines(cfg *config.Config) []string {
 	return lines
 }
 
+func summaryLine(name string, configured bool, value string) string {
+	status := serviceSummaryStatus(configured, value)
+	if configured {
+		return fmt.Sprintf("  %s %s: %s", loginConfirmedStyle.Render("✔"), name, loginConfirmedStyle.Render(status))
+	}
+	return fmt.Sprintf("  • %s: %s", name, loginNotConfigStyle.Render(status))
+}
+
 func serviceSummaryStatus(configured bool, value string) string {
 	if !configured {
 		return "not configured"
 	}
 	if strings.TrimSpace(value) == "" {
-		return "configured"
+		return "confirmed"
 	}
-	return "configured (" + strings.TrimSpace(value) + ")"
+	return "confirmed (" + strings.TrimSpace(value) + ")"
 }
 
 func validateRequired(name string) func(string) error {

@@ -40,13 +40,13 @@ func TestBuildLoginSummaryLines_Configured(t *testing.T) {
 		t.Fatalf("expected 4 summary lines, got %d", len(lines))
 	}
 
-	if !strings.Contains(lines[0], "configured (1234****)") {
+	if !strings.Contains(lines[0], "confirmed (1234****)") {
 		t.Fatalf("expected redacted GSC client id in first line, got %q", lines[0])
 	}
-	if !strings.Contains(lines[1], "configured (user@example.com)") {
+	if !strings.Contains(lines[1], "confirmed (user@example.com)") {
 		t.Fatalf("expected DataForSEO login in second line, got %q", lines[1])
 	}
-	if !strings.Contains(lines[2], "configured (serp****)") {
+	if !strings.Contains(lines[2], "confirmed (serp****)") {
 		t.Fatalf("expected redacted SerpAPI key in third line, got %q", lines[2])
 	}
 	if !strings.Contains(lines[3], "SERP provider: dataforseo") {
@@ -98,10 +98,33 @@ func TestServiceSummaryStatus(t *testing.T) {
 	if got := serviceSummaryStatus(false, "value"); got != "not configured" {
 		t.Fatalf("expected not configured, got %q", got)
 	}
-	if got := serviceSummaryStatus(true, ""); got != "configured" {
-		t.Fatalf("expected configured, got %q", got)
+	if got := serviceSummaryStatus(true, ""); got != "confirmed" {
+		t.Fatalf("expected confirmed, got %q", got)
 	}
-	if got := serviceSummaryStatus(true, "  abc  "); got != "configured (abc)" {
-		t.Fatalf("expected configured with trimmed value, got %q", got)
+	if got := serviceSummaryStatus(true, "  abc  "); got != "confirmed (abc)" {
+		t.Fatalf("expected confirmed with trimmed value, got %q", got)
+	}
+}
+
+func TestSummaryLine_Configured(t *testing.T) {
+	line := summaryLine("TestService", true, "val123")
+	if !strings.Contains(line, "✔") {
+		t.Fatalf("expected green tick in configured line, got %q", line)
+	}
+	if !strings.Contains(line, "confirmed (val123)") {
+		t.Fatalf("expected confirmed status in line, got %q", line)
+	}
+	if !strings.Contains(line, "TestService") {
+		t.Fatalf("expected service name in line, got %q", line)
+	}
+}
+
+func TestSummaryLine_NotConfigured(t *testing.T) {
+	line := summaryLine("TestService", false, "")
+	if strings.Contains(line, "✔") {
+		t.Fatalf("should not have tick for unconfigured service, got %q", line)
+	}
+	if !strings.Contains(line, "not configured") {
+		t.Fatalf("expected not configured in line, got %q", line)
 	}
 }
