@@ -3,8 +3,12 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
@@ -132,4 +136,61 @@ func (s *FileTokenStore) Status(service string) (Status, error) {
 
 func (s *FileTokenStore) tokenPath(service string) string {
 	return filepath.Join(s.baseDir, service+".json")
+}
+
+// RefreshGSCToken uses the stored refresh token to obtain a new access token
+// from Google's OAuth2 token endpoint. It updates and persists the token on success.
+func (s *FileTokenStore) RefreshGSCToken(clientID, clientSecret string) (TokenRecord, error) {
+	token, err := s.Load("gsc")
+	if err != nil {
+		return TokenRecord{}, fmt.Errorf("loading token for refresh: %w", err)
+	}
+	if token.RefreshToken == "" {
+		return TokenRecord{}, fmt.Errorf("no refresh token available — re-authenticate with 'sageo login'")
+	}
+
+	data := url.Values{
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"refresh_token": {token.RefreshToken},
+		"grant_type":    {"refresh_token"},
+	}
+
+	resp, err := http.Post("https://oauth2.googleapis.com/token", "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))
+	if err != nil {
+		return TokenRecord{}, fmt.Errorf("refresh request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return TokenRecord{}, fmt.Errorf("reading refresh response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return TokenRecord{}, fmt.Errorf("token refresh failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+		TokenType   string `json:"token_type"`
+		Scope       string `json:"scope"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return TokenRecord{}, fmt.Errorf("decoding refresh response: %w", err)
+	}
+
+	token.AccessToken = result.AccessToken
+	token.TokenType = result.TokenType
+	if result.Scope != "" {
+		token.Scope = result.Scope
+	}
+	token.ExpiresAt = s.nowFunc().Add(time.Duration(result.ExpiresIn) * time.Second).Format(time.RFC3339)
+
+	if err := s.Save("gsc", token); err != nil {
+		return TokenRecord{}, fmt.Errorf("persisting refreshed token: %w", err)
+	}
+
+	return token, nil
 }

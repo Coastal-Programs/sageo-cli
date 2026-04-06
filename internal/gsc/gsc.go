@@ -91,14 +91,41 @@ func (c *Client) ListSites() ([]Site, error) {
 	return sites, nil
 }
 
+// ValidSearchTypes lists the allowed values for the search type parameter.
+var ValidSearchTypes = []string{"web", "image", "video", "news", "discover", "googleNews"}
+
+// ValidateSearchType returns an error if the given search type is not one of the valid values.
+func ValidateSearchType(t string) error {
+	for _, v := range ValidSearchTypes {
+		if t == v {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid search type %q: must be one of web, image, video, news, discover, googleNews", t)
+}
+
 // QueryRequest defines the parameters for a Search Analytics query.
 type QueryRequest struct {
-	SiteURL    string   `json:"-"`
-	StartDate  string   `json:"startDate"`
-	EndDate    string   `json:"endDate"`
-	Dimensions []string `json:"dimensions"`
-	RowLimit   int      `json:"rowLimit,omitempty"`
-	StartRow   int      `json:"startRow,omitempty"`
+	SiteURL               string                 `json:"-"`
+	StartDate             string                 `json:"startDate"`
+	EndDate               string                 `json:"endDate"`
+	Dimensions            []string               `json:"dimensions"`
+	SearchType            string                 `json:"type,omitempty"`
+	RowLimit              int                    `json:"rowLimit,omitempty"`
+	StartRow              int                    `json:"startRow,omitempty"`
+	DimensionFilterGroups []DimensionFilterGroup `json:"dimensionFilterGroups,omitempty"`
+}
+
+// DimensionFilterGroup is a group of dimension filters combined with AND logic.
+type DimensionFilterGroup struct {
+	Filters []DimensionFilter `json:"filters"`
+}
+
+// DimensionFilter restricts results to rows where the given dimension matches the expression.
+type DimensionFilter struct {
+	Dimension  string `json:"dimension"`
+	Operator   string `json:"operator"`
+	Expression string `json:"expression"`
 }
 
 // QueryRow is a single row from a Search Analytics response.
@@ -119,12 +146,36 @@ type QueryResponse struct {
 // QueryPages retrieves page-level performance data.
 func (c *Client) QueryPages(req QueryRequest) (*QueryResponse, error) {
 	req.Dimensions = []string{"page"}
+	return c.searchAnalyticsPaginated(req)
+}
+
+// QueryDevices retrieves device-level performance data (MOBILE, DESKTOP, TABLET).
+func (c *Client) QueryDevices(req QueryRequest) (*QueryResponse, error) {
+	req.Dimensions = []string{"device"}
 	return c.searchAnalytics(req)
 }
 
 // QueryKeywords retrieves keyword-level performance data.
 func (c *Client) QueryKeywords(req QueryRequest) (*QueryResponse, error) {
 	req.Dimensions = []string{"query"}
+	return c.searchAnalyticsPaginated(req)
+}
+
+// QueryTrends retrieves date-grouped performance data to show traffic trends over time.
+func (c *Client) QueryTrends(req QueryRequest) (*QueryResponse, error) {
+	req.Dimensions = []string{"date"}
+	return c.searchAnalytics(req)
+}
+
+// QueryAppearances retrieves search appearance data (e.g. RICH_RESULT, FAQ, BREADCRUMB).
+func (c *Client) QueryAppearances(req QueryRequest) (*QueryResponse, error) {
+	req.Dimensions = []string{"searchAppearance"}
+	return c.searchAnalytics(req)
+}
+
+// QueryCountries retrieves country-level performance data keyed by 3-letter country code.
+func (c *Client) QueryCountries(req QueryRequest) (*QueryResponse, error) {
+	req.Dimensions = []string{"country"}
 	return c.searchAnalytics(req)
 }
 
@@ -139,16 +190,17 @@ type OpportunitySeed struct {
 }
 
 // QueryOpportunities retrieves page+query pairs with high impressions but low CTR or poor position.
-func (c *Client) QueryOpportunities(siteURL, startDate, endDate string, rowLimit int) ([]OpportunitySeed, error) {
+func (c *Client) QueryOpportunities(siteURL, startDate, endDate string, rowLimit int, searchType string) ([]OpportunitySeed, error) {
 	req := QueryRequest{
 		SiteURL:    siteURL,
 		StartDate:  startDate,
 		EndDate:    endDate,
 		Dimensions: []string{"query", "page"},
+		SearchType: searchType,
 		RowLimit:   rowLimit,
 	}
 
-	resp, err := c.searchAnalytics(req)
+	resp, err := c.searchAnalyticsPaginated(req)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +224,28 @@ func (c *Client) QueryOpportunities(siteURL, startDate, endDate string, rowLimit
 	}
 
 	return seeds, nil
+}
+
+func (c *Client) searchAnalyticsPaginated(req QueryRequest) (*QueryResponse, error) {
+	const pageSize = 25000
+	var allRows []QueryRow
+
+	req.RowLimit = pageSize
+	req.StartRow = 0
+
+	for {
+		resp, err := c.searchAnalytics(req)
+		if err != nil {
+			return nil, err
+		}
+		allRows = append(allRows, resp.Rows...)
+		if len(resp.Rows) < pageSize {
+			break
+		}
+		req.StartRow += pageSize
+	}
+
+	return &QueryResponse{Rows: allRows}, nil
 }
 
 func (c *Client) searchAnalytics(req QueryRequest) (*QueryResponse, error) {

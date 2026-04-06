@@ -13,6 +13,23 @@ const (
 	FileName = "state.json"
 )
 
+// GSCRow is a single row of GSC search analytics data.
+type GSCRow struct {
+	Key         string  `json:"key"`
+	Clicks      float64 `json:"clicks"`
+	Impressions float64 `json:"impressions"`
+	CTR         float64 `json:"ctr"`
+	Position    float64 `json:"position"`
+}
+
+// GSCData holds the most recent GSC pull saved to state.
+type GSCData struct {
+	LastPull    string   `json:"last_pull,omitempty"`
+	Property    string   `json:"property,omitempty"`
+	TopPages    []GSCRow `json:"top_pages,omitempty"`
+	TopKeywords []GSCRow `json:"top_keywords,omitempty"`
+}
+
 // Finding is a single interpreted audit result.
 type Finding struct {
 	Rule    string      `json:"rule"`
@@ -38,6 +55,7 @@ type State struct {
 	Score        float64        `json:"score,omitempty"`
 	PagesCrawled int            `json:"pages_crawled,omitempty"`
 	Findings     []Finding      `json:"findings,omitempty"`
+	GSC          *GSCData       `json:"gsc,omitempty"`
 	History      []HistoryEntry `json:"history,omitempty"`
 }
 
@@ -114,25 +132,7 @@ func (s *State) Sources() (used []string, missing []string) {
 		used = append(used, "crawl")
 	}
 
-	// Check whether any finding carries a GSC source tag.
-	hasGSC := false
-	for _, f := range s.Findings {
-		if src, ok := f.Value.(map[string]interface{}); ok {
-			if sources, ok := src["sources"].([]interface{}); ok {
-				for _, sv := range sources {
-					if sv == "gsc" {
-						hasGSC = true
-						break
-					}
-				}
-			}
-		}
-		if hasGSC {
-			break
-		}
-	}
-
-	if hasGSC {
+	if s.GSC != nil && s.GSC.LastPull != "" {
 		used = append(used, "gsc")
 	} else {
 		missing = append(missing, "gsc")

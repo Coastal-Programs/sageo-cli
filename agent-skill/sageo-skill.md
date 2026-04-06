@@ -16,7 +16,13 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 
 4. **`sageo gsc sites list`** then **`sageo gsc sites use <property>`** — List the GSC properties the authenticated Google account has access to, then set the active property. Requires prior OAuth login (`sageo auth login gsc`).
 
-5. **`sageo gsc query pages`** / **`sageo gsc query keywords`** — Pull page-level or keyword-level search performance data (clicks, impressions, CTR, position) from GSC for the active property. Defaults to the last 28 days.
+5. **`sageo gsc query pages`** / **`sageo gsc query keywords`** — Pull page-level or keyword-level search performance data (clicks, impressions, CTR, position) from GSC for the active property. Defaults to the last 28 days. Use `--query` on `pages` to filter to a specific keyword, and `--page` on `keywords` to drill into which queries drive traffic to a specific URL.
+
+5a. **`sageo gsc query trends`** — After pulling pages or keywords, check trends to see whether traffic is growing or declining over the date range. Useful for spotting seasonal drops or recent algorithm effects.
+
+5b. **`sageo gsc query devices`** — If mobile performance looks different from desktop, run this to get the split by device type and compare CTR and position across devices.
+
+5c. **`sageo gsc query countries`** / **`sageo gsc query appearances`** — Optionally break down traffic by country or by rich result type (web, image, video) to find untapped segments.
 
 6. **`sageo gsc opportunities`** — Identify keyword and page opportunities derived from GSC data: high-impression/low-CTR queries, quick-win ranking gaps, etc.
 
@@ -31,7 +37,7 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 | Tier | Cost | Requires | What you get |
 |------|------|----------|-------------|
 | **Tier 1** | Free | A URL | Crawl + SEO audit. Works for any public site with no credentials. |
-| **Tier 2** | Free | Google OAuth | GSC search performance data (clicks, impressions, CTR, position, opportunities). Requires `sageo auth login gsc` and a verified GSC property. |
+| **Tier 2** | Free | Google OAuth | GSC search performance data: pages, keywords, trends, devices, countries, appearances, and opportunities. Requires `sageo auth login gsc` and a verified GSC property. |
 | **Tier 3** | Paid | DataForSEO or SerpAPI account | Live SERP results, Labs domain/keyword intelligence, AEO AI-engine responses, GEO AI mention tracking. Always supports `--dry-run`. |
 
 ---
@@ -55,9 +61,15 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 |---------|-------|-------------|------|-----------|
 | `gsc sites list` | `sageo gsc sites list` | List all GSC properties accessible to the authenticated account. | Free (OAuth) | — |
 | `gsc sites use` | `sageo gsc sites use <property_url>` | Set the active GSC property in config. | Free | — |
-| `gsc query pages` | `sageo gsc query pages` | Return page-level performance: clicks, impressions, CTR, position. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100) |
-| `gsc query keywords` | `sageo gsc query keywords` | Return keyword-level performance data. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100) |
+| `gsc query pages` | `sageo gsc query pages` | Return page-level performance: clicks, impressions, CTR, position. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100), `--query` (filter by keyword) |
+| `gsc query keywords` | `sageo gsc query keywords` | Return keyword-level performance data. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100), `--page` (filter by URL) |
+| `gsc query trends` | `sageo gsc query trends` | Return traffic trends aggregated by date (clicks, impressions over time). | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100) |
+| `gsc query devices` | `sageo gsc query devices` | Return performance split by device type (mobile vs desktop vs tablet). | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100) |
+| `gsc query countries` | `sageo gsc query countries` | Return traffic broken down by country. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100) |
+| `gsc query appearances` | `sageo gsc query appearances` | Return performance by rich result / search appearance type (e.g. web, image, video). | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 100) |
 | `gsc opportunities` | `sageo gsc opportunities` | Surface high-impression/low-CTR opportunity seeds from GSC data. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 1000) |
+
+> **Common flag on all `gsc query` commands:** `--type` filters by search type (`web`, `image`, `video`, `news`).
 
 ### Opportunities (Combined)
 

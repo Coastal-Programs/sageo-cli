@@ -124,7 +124,7 @@ Optionally enrich with live SERP data for validation (paid, supports --dry-run).
 
 			// Fetch GSC opportunity seeds
 			gscClient := gsc.NewClient(token.AccessToken)
-			seeds, err := gscClient.QueryOpportunities(cfg.GSCProperty, startDate, endDate, rowLimit)
+			seeds, err := gscClient.QueryOpportunities(cfg.GSCProperty, startDate, endDate, rowLimit, "web")
 			if err != nil {
 				return output.PrintCodedError(output.ErrGSCFailed, "failed to query GSC opportunities", err, nil, output.Format(*format))
 			}

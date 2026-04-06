@@ -47,7 +47,16 @@ description: Run checks, commit, push, and create a lightweight release tag
    git push
    ```
 
-6. Create and push the next lightweight semver patch tag (no binary build):
+6. Write release notes as a short, human-readable summary (5-6 lines max). Read the diff to understand what changed, then write it like you're telling a mate what's new. Rules:
+   - Natural language, conversational tone. No changelog formatting.
+   - No bullet-point lists, no file paths, no "Added:/Updated:/Fixed:" headers.
+   - No mention of phases, sprints, milestones, or internal planning names.
+   - No em dashes. Use commas or full stops instead.
+   - Use Australian English spelling (e.g. stabilise, organised, colour, behaviour).
+   - Just say what changed and why it matters, 5-6 lines tops.
+   - Save it to a variable called `release_notes`.
+
+7. Create and push the next lightweight semver patch tag (no binary build):
    ```bash
    latest_tag=$(git tag --list 'v*' --sort=-v:refname | head -n1)
    if [ -z "$latest_tag" ]; then
@@ -61,16 +70,16 @@ description: Run checks, commit, push, and create a lightweight release tag
      next_tag="v${major}.${minor}.$((patch + 1))"
    fi
 
-   git tag -a "$next_tag" -m "Release $next_tag"
+   git tag -a "$next_tag" -m "$(echo -e "Release $next_tag\n\n$release_notes")"
    git push origin "$next_tag"
    ```
 
-7. If GitHub CLI is available, publish a lightweight GitHub Release from that tag (no assets/builds):
+8. If GitHub CLI is available, publish a lightweight GitHub Release with the release notes (no assets/builds):
    ```bash
    if command -v gh >/dev/null 2>&1; then
      gh release create "$next_tag" \
        --title "$next_tag" \
-       --notes "Automated lightweight release (no binaries attached)."
+       --notes "$release_notes"
    else
      echo "gh CLI not installed; tag pushed. Create release manually in GitHub UI if needed."
    fi
