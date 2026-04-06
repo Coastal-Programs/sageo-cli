@@ -20,7 +20,7 @@ func TestExtractPageDataNormalPage(t *testing.T) {
 </body>
 </html>`)
 
-	result := extractPageData("https://example.com/test", 200, html)
+	result := extractPageData("https://example.com/test", 200, html, nil, 0)
 
 	if result.Title != "Test Page" {
 		t.Errorf("expected title 'Test Page', got %q", result.Title)
@@ -62,7 +62,7 @@ func TestExtractPageDataNormalPage(t *testing.T) {
 
 func TestExtractPageDataMissingElements(t *testing.T) {
 	html := []byte(`<html><body><p>No SEO elements</p></body></html>`)
-	result := extractPageData("https://example.com", 200, html)
+	result := extractPageData("https://example.com", 200, html, nil, 0)
 
 	if result.Title != "" {
 		t.Errorf("expected empty title, got %q", result.Title)
@@ -81,7 +81,7 @@ func TestExtractPageDataMissingElements(t *testing.T) {
 func TestExtractPageDataMalformedHTML(t *testing.T) {
 	// Malformed: missing closing tags, nested improperly
 	html := []byte(`<html><head><title>Broken</title></head><body><h1>OK<img src="/x"><p>unclosed`)
-	result := extractPageData("https://example.com", 200, html)
+	result := extractPageData("https://example.com", 200, html, nil, 0)
 
 	if result.StatusCode != 200 {
 		t.Errorf("expected status 200, got %d", result.StatusCode)

@@ -25,6 +25,29 @@ type PageResult struct {
 	Headings        []Heading `json:"headings,omitempty"`
 	Links           []Link    `json:"links,omitempty"`
 	Images          []Image   `json:"images,omitempty"`
+
+	// Meta directives
+	MetaRobots string `json:"meta_robots,omitempty"`
+	Viewport   string `json:"viewport,omitempty"`
+
+	// Open Graph
+	OGTitle       string `json:"og_title,omitempty"`
+	OGDescription string `json:"og_description,omitempty"`
+	OGImage       string `json:"og_image,omitempty"`
+	OGType        string `json:"og_type,omitempty"`
+
+	// Language
+	Lang     string   `json:"lang,omitempty"`
+	Hreflang []string `json:"hreflang,omitempty"`
+
+	// Content
+	WordCount   int      `json:"word_count"`
+	SchemaTypes []string `json:"schema_types,omitempty"`
+
+	// HTTP response data
+	ContentType  string `json:"content_type,omitempty"`
+	XRobotsTag   string `json:"x_robots_tag,omitempty"`
+	ResponseTime int    `json:"response_time_ms,omitempty"`
 }
 
 // Heading represents an HTML heading element.

@@ -18,6 +18,8 @@ type Issue struct {
 	URL      string   `json:"url"`
 	Message  string   `json:"message"`
 	Detail   string   `json:"detail,omitempty"`
+	Why      string   `json:"why,omitempty"`
+	Fix      string   `json:"fix,omitempty"`
 }
 
 // Request defines inputs for an audit operation.

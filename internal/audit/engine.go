@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"math"
 
 	"github.com/jakeschepis/sageo-cli/internal/crawl"
 )
@@ -23,6 +24,13 @@ func (e *engine) Run(ctx context.Context, req Request) (Result, error) {
 		checkImageAlt,
 		checkCanonical,
 		checkStatusCode,
+		checkViewport,
+		checkOpenGraph,
+		checkResponseTime,
+		checkWordCount,
+		checkSchema,
+		checkMetaRobots,
+		checkLang,
 	}
 
 	var allIssues []Issue
@@ -50,8 +58,14 @@ func (e *engine) Run(ctx context.Context, req Request) (Result, error) {
 	}, nil
 }
 
+// volatileRules are excluded from score calculation because they vary between runs.
+var volatileRules = map[string]bool{
+	"slow-response": true,
+}
+
 // computeScore calculates a 0-100 score based on issues found.
 // Deductions are weighted by severity and normalized by page count.
+// Volatile rules (e.g. response time) are excluded to keep scores deterministic.
 func computeScore(issues []Issue, pageCount int) float64 {
 	if pageCount == 0 {
 		return 100
@@ -59,6 +73,9 @@ func computeScore(issues []Issue, pageCount int) float64 {
 
 	totalDeduction := 0.0
 	for _, issue := range issues {
+		if volatileRules[issue.Rule] {
+			continue
+		}
 		totalDeduction += severityWeight[issue.Severity]
 	}
 
@@ -70,5 +87,5 @@ func computeScore(issues []Issue, pageCount int) float64 {
 	if score < 0 {
 		score = 0
 	}
-	return score
+	return math.Round(score*10) / 10
 }

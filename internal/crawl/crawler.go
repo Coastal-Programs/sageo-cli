@@ -2,10 +2,16 @@ package crawl
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/jakeschepis/sageo-cli/internal/common/retry"
 	"github.com/jakeschepis/sageo-cli/internal/provider"
 )
 
@@ -113,7 +119,42 @@ func (c *crawler) Run(ctx context.Context, req Request) (Result, error) {
 			}
 			mu.Unlock()
 
-			fetchResult, fetchErr := c.fetcher.Fetch(ctx, item.url)
+			fetchStart := time.Now()
+			var fetchResult provider.FetchResult
+			var lastWas5xx bool
+			fetchErr := retry.Do(1, func() error {
+				lastWas5xx = false
+				var err error
+				fetchResult, err = c.fetcher.Fetch(ctx, item.url)
+				if err != nil {
+					// Wrap timeout errors so the retry layer treats them as retryable.
+					var netErr net.Error
+					if errors.As(err, &netErr) && netErr.Timeout() {
+						return &retry.RetryableError{StatusCode: 503, Err: err}
+					}
+					if errors.Is(err, context.DeadlineExceeded) {
+						return &retry.RetryableError{StatusCode: 503, Err: err}
+					}
+					return err
+				}
+				// Treat 5xx responses as retryable, but remember it was a server
+				// status (not a network error) so we still record the page after
+				// all retries are exhausted.
+				if fetchResult.StatusCode >= 500 {
+					lastWas5xx = true
+					return &retry.RetryableError{
+						StatusCode: fetchResult.StatusCode,
+						Err:        fmt.Errorf("HTTP %d", fetchResult.StatusCode),
+					}
+				}
+				return nil
+			})
+			// A persistent 5xx response is still a valid page — clear the error so
+			// the page is recorded with its status code as the original code did.
+			if fetchErr != nil && lastWas5xx {
+				fetchErr = nil
+			}
+			responseTimeMs := int(time.Since(fetchStart).Milliseconds())
 
 			mu.Lock()
 			if fetchErr != nil {
@@ -139,7 +180,7 @@ func (c *crawler) Run(ctx context.Context, req Request) (Result, error) {
 				return
 			}
 
-			page := extractPageData(item.url, fetchResult.StatusCode, fetchResult.Body)
+			page := extractPageData(item.url, fetchResult.StatusCode, fetchResult.Body, fetchResult.Headers, responseTimeMs)
 			result.Pages = append(result.Pages, page)
 			currentCount := len(result.Pages)
 			mu.Unlock()
@@ -188,6 +229,10 @@ func (c *crawler) Run(ctx context.Context, req Request) (Result, error) {
 	}
 
 	wg.Wait()
+
+	sort.Slice(result.Pages, func(i, j int) bool {
+		return result.Pages[i].URL < result.Pages[j].URL
+	})
 
 	if ctx.Err() != nil {
 		return result, ctx.Err()

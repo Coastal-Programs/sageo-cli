@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	neturl "net/url"
 	"time"
+
+	"github.com/jakeschepis/sageo-cli/internal/common/retry"
 )
 
 const baseURL = "https://www.googleapis.com/webmasters/v3"
@@ -48,30 +51,44 @@ type Site struct {
 
 // ListSites returns all GSC properties accessible by the authenticated user.
 func (c *Client) ListSites() ([]Site, error) {
-	req, err := http.NewRequest("GET", baseURL+"/sites", nil)
+	var sites []Site
+
+	err := retry.Do(2, func() error {
+		req, err := http.NewRequest("GET", baseURL+"/sites", nil)
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+c.accessToken)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("listing sites: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			baseErr := fmt.Errorf("list sites returned status %d", resp.StatusCode)
+			if resp.StatusCode == 429 || resp.StatusCode == 500 || resp.StatusCode == 502 || resp.StatusCode == 503 {
+				return &retry.RetryableError{StatusCode: resp.StatusCode, Err: baseErr}
+			}
+			return baseErr
+		}
+
+		var result struct {
+			SiteEntry []Site `json:"siteEntry"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("decoding sites response: %w", err)
+		}
+
+		sites = result.SiteEntry
+		return nil
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.accessToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("listing sites: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list sites returned status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		SiteEntry []Site `json:"siteEntry"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decoding sites response: %w", err)
-	}
-
-	return result.SiteEntry, nil
+	return sites, nil
 }
 
 // QueryRequest defines the parameters for a Search Analytics query.
@@ -164,27 +181,47 @@ func (c *Client) searchAnalytics(req QueryRequest) (*QueryResponse, error) {
 	}
 
 	url := fmt.Sprintf("%s/sites/%s/searchAnalytics/query", searchAnalyticsURL, neturl.QueryEscape(req.SiteURL))
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.accessToken)
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("search analytics request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("search analytics returned status %d: %s", resp.StatusCode, string(respBody))
-	}
 
 	var result QueryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decoding search analytics response: %w", err)
+
+	err = retry.Do(2, func() error {
+		httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+c.accessToken)
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			return fmt.Errorf("search analytics request: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			baseErr := fmt.Errorf("search analytics returned status %d: %s", resp.StatusCode, string(respBody))
+			if resp.StatusCode == 429 || resp.StatusCode == 500 || resp.StatusCode == 502 || resp.StatusCode == 503 {
+				return &retry.RetryableError{StatusCode: resp.StatusCode, Err: baseErr}
+			}
+			return baseErr
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("decoding search analytics response: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Round values for clean output
+	for i := range result.Rows {
+		result.Rows[i].CTR = math.Round(result.Rows[i].CTR*10000) / 10000
+		result.Rows[i].Position = math.Round(result.Rows[i].Position*10) / 10
 	}
 
 	return &result, nil

@@ -3,11 +3,14 @@ package commands
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
 	"github.com/jakeschepis/sageo-cli/internal/crawl"
 	"github.com/jakeschepis/sageo-cli/internal/provider"
 	_ "github.com/jakeschepis/sageo-cli/internal/provider/local"
+	"github.com/jakeschepis/sageo-cli/internal/state"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
 )
@@ -62,6 +65,15 @@ func newCrawlRunCmd(format *string, verbose *bool) *cobra.Command {
 					code = output.ErrCancelled
 				}
 				return output.PrintCodedError(code, "crawl failed", err, nil, output.Format(*format))
+			}
+
+			if state.Exists(".") {
+				if st, err := state.Load("."); err == nil {
+					st.LastCrawl = time.Now().UTC().Format(time.RFC3339)
+					st.PagesCrawled = len(result.Pages)
+					st.AddHistory("crawl", fmt.Sprintf("pages=%d errors=%d", len(result.Pages), len(result.Errors)))
+					_ = st.Save(".")
+				}
 			}
 
 			return output.PrintSuccess(result, map[string]any{

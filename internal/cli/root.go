@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/jakeschepis/sageo-cli/internal/cli/commands"
-	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -16,11 +15,10 @@ var (
 // Execute runs the root command.
 func Execute(version string) error {
 	root := newRootCmd(version)
-	if err := root.Execute(); err != nil {
-		output.PrintError(err.Error(), nil)
-		return err
-	}
-	return nil
+	// Commands print their own structured error envelopes via PrintCodedError.
+	// SilenceErrors prevents Cobra from printing raw errors.
+	// We return the error for exit code purposes only — no double printing.
+	return root.Execute()
 }
 
 func newRootCmd(version string) *cobra.Command {
@@ -58,6 +56,8 @@ Crawl websites, run SEO audits, generate reports, and manage providers.`,
 	cmd.AddCommand(commands.NewLabsCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewLoginCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewLogoutCmd())
+	cmd.AddCommand(commands.NewInitCmd(&outputFormat, &verbose))
+	cmd.AddCommand(commands.NewStatusCmd(&outputFormat, &verbose))
 
 	return cmd
 }

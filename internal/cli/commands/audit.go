@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 
+	"fmt"
+
 	"github.com/jakeschepis/sageo-cli/internal/audit"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
 	"github.com/jakeschepis/sageo-cli/internal/crawl"
 	"github.com/jakeschepis/sageo-cli/internal/provider"
 	_ "github.com/jakeschepis/sageo-cli/internal/provider/local"
+	"github.com/jakeschepis/sageo-cli/internal/state"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
 )
@@ -71,6 +74,27 @@ func newAuditRunCmd(format *string, verbose *bool) *cobra.Command {
 			})
 			if err != nil {
 				return output.PrintCodedError(output.ErrAuditFailed, "audit failed", err, nil, output.Format(*format))
+			}
+
+			// Save to .sageo/state.json if project is initialized
+			if state.Exists(".") {
+				st, loadErr := state.Load(".")
+				if loadErr == nil {
+					findings := make([]state.Finding, 0, len(auditResult.Issues))
+					for _, issue := range auditResult.Issues {
+						findings = append(findings, state.Finding{
+							Rule:    issue.Rule,
+							URL:     issue.URL,
+							Value:   issue.Message,
+							Verdict: string(issue.Severity),
+							Why:     issue.Why,
+							Fix:     issue.Fix,
+						})
+					}
+					st.UpdateAudit(auditResult.Score, auditResult.PageCount, findings)
+					st.AddHistory("audit", fmt.Sprintf("score=%.1f issues=%d pages=%d", auditResult.Score, len(auditResult.Issues), auditResult.PageCount))
+					_ = st.Save(".")
+				}
 			}
 
 			return output.PrintSuccess(auditResult, map[string]any{
