@@ -143,17 +143,17 @@ func selectLoginAction() (loginAction, error) {
 
 	gscLabel := "Google Search Console (OAuth)"
 	if isGSCConfigured(cfg) {
-		gscLabel += " (configured)"
+		gscLabel += " " + loginConfirmedStyle.Render("✔ confirmed")
 	}
 
 	dataForSEOLabel := "DataForSEO (SERP + AEO/GEO)"
 	if isDataForSEOConfigured(cfg) {
-		dataForSEOLabel += " (configured)"
+		dataForSEOLabel += " " + loginConfirmedStyle.Render("✔ confirmed")
 	}
 
 	serpAPILabel := "SerpAPI (API key)"
 	if isSerpAPIConfigured(cfg) {
-		serpAPILabel += " (configured)"
+		serpAPILabel += " " + loginConfirmedStyle.Render("✔ confirmed")
 	}
 
 	form := huh.NewForm(
