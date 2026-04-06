@@ -353,6 +353,38 @@ All tested live against coastalprograms.com GSC property:
 - gscClient() now auto-refreshes expired tokens using stored refresh_token + client credentials
 - No more manual re-authentication needed when tokens expire (1hr Google OAuth tokens)
 
+### Phase 3 — Full merge flow — coastalprograms.com — 2026-04-06
+
+Full end-to-end test of the complete `init → audit → gsc → analyze` merge pipeline:
+
+**Steps run:**
+1. `init --url https://www.coastalprograms.com` ✅ — state.json created
+2. `audit run --url https://www.coastalprograms.com --depth 2 --max-pages 50` ✅ — 23 pages, 51 findings, score 79.7/100
+3. `status` (post-crawl) ✅ — `sources_used: ["crawl"]`, `sources_missing: ["gsc"]`
+4. `gsc sites use sc-domain:coastalprograms.com` ✅
+5. `gsc query pages --limit 50` ✅ — 19 pages returned (real GSC data)
+6. `gsc query keywords --limit 50` ✅ — 28 keywords returned
+7. `status` (post-GSC) ✅ — `sources_used: ["crawl", "gsc"]`, `sources_missing: null`
+8. `analyze` ✅ — 17 merged findings produced
+9. `status` (post-analyze) ✅ — `merged_findings_count: 17`, `top_priority: "issues-on-high-traffic-page"`
+
+**state.json verification:**
+- `merged_findings` array: ✅ 17 items with priority scores
+- All findings reference `sources: ["crawl", "gsc"]` ✅
+- Sorted by priority descending (95, 90, 90, 85, 80, 80…) ✅
+- URL normalization: ✅ — crawl had `www.coastalprograms.com`, GSC had `coastalprograms.com` — merger correctly matched via strip-www normalization; all findings use canonical non-www form
+
+**Top 3 merged findings:**
+1. `https://coastalprograms.com/` — `issues-on-high-traffic-page` — priority 95 — "Page gets 5 clicks but has 2 crawl issue(s) — fixing these protects existing traffic"
+2. `https://coastalprograms.com/blog/manual-work-cost` — `issues-on-high-traffic-page` — priority 90 — "Page gets 1 clicks but has 3 crawl issue(s)"
+3. `https://coastalprograms.com/about` — `issues-on-high-traffic-page` — priority 90 — "Page gets 2 clicks but has 3 crawl issue(s)"
+
+**All three are sensible:** the homepage and best-traffic pages get highest priority, and the findings correctly merge crawl issues with real GSC click data to justify the priority score.
+
+**Tests:** `go test ./...` — all pass ✅ | `go vet ./...` — clean ✅
+
+**Phase 3 conclusion:** The full merge pipeline works correctly against live data. URL normalization, priority scoring, source attribution, and state persistence all function as designed.
+
 ### Commands not yet tested
 - serp analyze/compare
 - aeo responses/keywords

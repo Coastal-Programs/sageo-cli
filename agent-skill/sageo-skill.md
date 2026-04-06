@@ -26,9 +26,13 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 
 6. **`sageo gsc opportunities`** — Identify keyword and page opportunities derived from GSC data: high-impression/low-CTR queries, quick-win ranking gaps, etc.
 
-7. **`sageo opportunities --with-serp --dry-run`** — Preview the cost of enriching GSC opportunity seeds with live SERP data before committing. Drop `--dry-run` to execute once you confirm the cost.
+7. **`sageo analyze`** — Compares crawl data with GSC data, finds cross-source issues that neither data source reveals alone. Free. Requires `init` + `audit run` first; GSC data is optional but strongly recommended for the best results.
 
-8. **Fix issues found in `state.json` findings** — Each finding includes `rule`, `url`, `verdict`, `why`, and `fix`. Work through findings by severity (`error` → `warning` → `info`), apply the recommended fix, then re-run `sageo audit run` to verify improvement.
+8. **Read `state.json` `merged_findings`** — After `analyze`, the `merged_findings` array in `.sageo/state.json` contains prioritized action items combining crawl and GSC evidence. Work through these by priority (`HIGH` → `MEDIUM` → `LOW`).
+
+9. **`sageo opportunities --with-serp --dry-run`** — Preview the cost of enriching GSC opportunity seeds with live SERP data before committing. Drop `--dry-run` to execute once you confirm the cost.
+
+10. **Fix issues found in `state.json` findings** — Each finding includes `rule`, `url`, `verdict`, `why`, and `fix`. Work through findings by severity (`error` → `warning` → `info`), apply the recommended fix, then re-run `sageo audit run` to verify improvement.
 
 ---
 
@@ -70,6 +74,12 @@ Sageo is a command-line SEO/AEO/GEO analysis tool distributed as a single Go bin
 | `gsc opportunities` | `sageo gsc opportunities` | Surface high-impression/low-CTR opportunity seeds from GSC data. | Free (OAuth) | `--start-date`, `--end-date`, `--limit` (default 1000) |
 
 > **Common flag on all `gsc query` commands:** `--type` filters by search type (`web`, `image`, `video`, `news`).
+
+### Cross-Source Analysis
+
+| Command | Usage | What it does | Cost | Key flags |
+|---------|-------|-------------|------|-----------|
+| `analyze` | `sageo analyze` | Merges crawl and GSC data, produces prioritized cross-source findings saved to `state.json` `merged_findings`. | Free | — (no flags; requires `init` + `audit run` first; GSC data optional but recommended) |
 
 ### Opportunities (Combined)
 
@@ -192,6 +202,22 @@ State is stored at `.sageo/state.json` relative to the project root. Structure:
 
 ---
 
+## Cross-Source Findings
+
+Cross-source findings only exist when crawl data is compared against GSC data via `sageo analyze`. They surface issues that neither data source can reveal on its own. Results are stored in `state.json` under `merged_findings`, each with a `priority` (`HIGH`, `MEDIUM`, `LOW`).
+
+### Rules
+
+| Rule | What it means | What to do |
+|------|--------------|------------|
+| `ranking-but-not-clicking` | A page ranks well in Google (good position) but has abnormally low CTR, meaning users see it but don't click. | Rewrite the title tag and meta description to be more compelling; consider adding structured data for rich snippets. |
+| `not-indexed` | A page exists on the site (found by crawl) but does not appear in any GSC query data, suggesting Google may not have indexed it. | Check for `noindex` tags, canonical issues, or crawl blocks; submit the URL via GSC's URL Inspection tool. |
+| `issues-on-high-traffic-page` | A page that receives significant GSC traffic has SEO audit errors (e.g. missing meta description, broken links, slow load). | Fix the audit findings on this page first — it already has traffic, so improvements here have outsized impact. |
+| `thin-content-ranking-well` | A page with very little content (low word count detected by crawl) is still ranking and getting impressions in GSC. | Expand the content with useful, relevant information — the page has ranking potential but thin content puts it at risk of losing position. |
+| `schema-not-showing` | A page has structured data / schema markup (detected by crawl) but GSC shows no rich result appearances for it. | Validate the schema with Google's Rich Results Test; fix any errors so Google can display rich snippets for this page. |
+
+---
+
 ## Do's and Don'ts
 
 ### Do
@@ -201,6 +227,8 @@ State is stored at `.sageo/state.json` relative to the project root. Structure:
 - **Use `sageo gsc opportunities` before `sageo opportunities --with-serp`.** GSC opportunities are free and often sufficient; SERP enrichment is an optional paid upgrade.
 - **Cache is automatic for SERP/Labs calls.** Results are cached for 1 hour. If you re-run the same query within that window, it won't cost anything.
 - **Prioritize `error` verdict findings.** They have the highest SEO impact and clearest fixes.
+- **Always run `sageo analyze` after pulling GSC data.** That's where the real insights are — cross-source findings reveal issues invisible to either data source alone.
+- **Fix `HIGH` priority merged findings first.** They're costing you traffic right now and have the clearest path to improvement.
 
 ### Don't
 - **Never retry a failed paid command immediately.** If a DataForSEO or SerpAPI call fails, the charge may still have been incurred. Investigate the error first.

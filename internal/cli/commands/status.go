@@ -1,8 +1,10 @@
 package commands
 
 import (
+	"encoding/json"
 	"time"
 
+	"github.com/jakeschepis/sageo-cli/internal/merge"
 	"github.com/jakeschepis/sageo-cli/internal/state"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
@@ -30,16 +32,32 @@ func NewStatusCmd(format *string, verbose *bool) *cobra.Command {
 
 			used, missing := s.Sources()
 
+			// Parse merged findings for count and top priority.
+			var mergedCount int
+			var topPriority string
+			if len(s.MergedFindings) > 0 {
+				var merged []merge.MergedFinding
+				if err := json.Unmarshal(s.MergedFindings, &merged); err == nil {
+					mergedCount = len(merged)
+					if len(merged) > 0 {
+						topPriority = merged[0].Rule
+					}
+				}
+			}
+
 			data := map[string]any{
-				"site":            s.Site,
-				"initialized":     s.Initialized,
-				"last_crawl":      s.LastCrawl,
-				"score":           s.Score,
-				"pages_crawled":   s.PagesCrawled,
-				"findings_count":  len(s.Findings),
-				"history_count":   len(s.History),
-				"sources_used":    used,
-				"sources_missing": missing,
+				"site":                  s.Site,
+				"initialized":           s.Initialized,
+				"last_crawl":            s.LastCrawl,
+				"score":                 s.Score,
+				"pages_crawled":         s.PagesCrawled,
+				"findings_count":        len(s.Findings),
+				"merged_findings_count": mergedCount,
+				"top_priority":          topPriority,
+				"last_analysis":         s.LastAnalysis,
+				"history_count":         len(s.History),
+				"sources_used":          used,
+				"sources_missing":       missing,
 			}
 			metadata := map[string]any{
 				"generated_at": time.Now().UTC().Format(time.RFC3339),

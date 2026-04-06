@@ -49,14 +49,16 @@ type HistoryEntry struct {
 
 // State is the single project file the AI reads and writes.
 type State struct {
-	Site         string         `json:"site"`
-	Initialized  string         `json:"initialized"`
-	LastCrawl    string         `json:"last_crawl,omitempty"`
-	Score        float64        `json:"score,omitempty"`
-	PagesCrawled int            `json:"pages_crawled,omitempty"`
-	Findings     []Finding      `json:"findings,omitempty"`
-	GSC          *GSCData       `json:"gsc,omitempty"`
-	History      []HistoryEntry `json:"history,omitempty"`
+	Site           string          `json:"site"`
+	Initialized    string          `json:"initialized"`
+	LastCrawl      string          `json:"last_crawl,omitempty"`
+	Score          float64         `json:"score,omitempty"`
+	PagesCrawled   int             `json:"pages_crawled,omitempty"`
+	Findings       []Finding       `json:"findings,omitempty"`
+	MergedFindings json.RawMessage `json:"merged_findings,omitempty"`
+	LastAnalysis   string          `json:"last_analysis,omitempty"`
+	GSC            *GSCData        `json:"gsc,omitempty"`
+	History        []HistoryEntry  `json:"history,omitempty"`
 }
 
 // Path returns the state.json path relative to a working directory.
