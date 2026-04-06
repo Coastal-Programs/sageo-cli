@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -50,6 +51,46 @@ func TestBuildLoginSummaryLines_Configured(t *testing.T) {
 	}
 	if !strings.Contains(lines[3], "SERP provider: dataforseo") {
 		t.Fatalf("expected serp provider line, got %q", lines[3])
+	}
+}
+
+func TestSanitizeVerifyError_NilError(t *testing.T) {
+	if got := sanitizeVerifyError(nil); got != "" {
+		t.Fatalf("expected empty string for nil error, got %q", got)
+	}
+}
+
+func TestSanitizeVerifyError_NoSecrets(t *testing.T) {
+	err := fmt.Errorf("connection refused")
+	got := sanitizeVerifyError(err)
+	if got != "connection refused" {
+		t.Fatalf("expected plain message, got %q", got)
+	}
+}
+
+func TestSanitizeVerifyError_RedactsSecrets(t *testing.T) {
+	err := fmt.Errorf("401 Unauthorized for user@example.com with password mypassword123")
+	got := sanitizeVerifyError(err, "user@example.com", "mypassword123")
+	if strings.Contains(got, "user@example.com") {
+		t.Fatalf("login should be redacted, got %q", got)
+	}
+	if strings.Contains(got, "mypassword123") {
+		t.Fatalf("password should be redacted, got %q", got)
+	}
+	if !strings.Contains(got, "****") {
+		t.Fatalf("expected redaction placeholder, got %q", got)
+	}
+	expected := "401 Unauthorized for **** with password ****"
+	if got != expected {
+		t.Fatalf("expected %q, got %q", expected, got)
+	}
+}
+
+func TestSanitizeVerifyError_EmptySecretIgnored(t *testing.T) {
+	err := fmt.Errorf("timeout")
+	got := sanitizeVerifyError(err, "", "  ")
+	if got != "timeout" {
+		t.Fatalf("expected unchanged message, got %q", got)
 	}
 }
 

@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	defaultBaseURL   = "https://serpapi.com/search"
-	costPerSearchUSD = 0.01 // estimated cost per search
-	costBasis        = "serpapi: $0.01/search (estimate based on 100 searches/month plan)"
+	defaultBaseURL    = "https://serpapi.com/search"
+	defaultAccountURL = "https://serpapi.com/account.json"
+	costPerSearchUSD  = 0.01 // estimated cost per search
+	costBasis         = "serpapi: $0.01/search (estimate based on 100 searches/month plan)"
 )
 
 // HTTPClient is an interface for HTTP operations (supports testing).
@@ -27,6 +28,7 @@ type HTTPClient interface {
 type Adapter struct {
 	apiKey     string
 	baseURL    string
+	accountURL string
 	httpClient HTTPClient
 }
 
@@ -36,6 +38,11 @@ type Option func(*Adapter)
 // WithBaseURL overrides the default SerpAPI endpoint (useful for testing).
 func WithBaseURL(url string) Option {
 	return func(a *Adapter) { a.baseURL = url }
+}
+
+// WithAccountURL overrides the default SerpAPI account endpoint (useful for testing).
+func WithAccountURL(url string) Option {
+	return func(a *Adapter) { a.accountURL = url }
 }
 
 // WithHTTPClient overrides the default HTTP client (useful for testing).
@@ -48,6 +55,7 @@ func New(apiKey string, opts ...Option) *Adapter {
 	a := &Adapter{
 		apiKey:     apiKey,
 		baseURL:    defaultBaseURL,
+		accountURL: defaultAccountURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 	for _, opt := range opts {
@@ -145,4 +153,41 @@ func (a *Adapter) Analyze(req serp.AnalyzeRequest) (*serp.AnalyzeResponse, error
 		TotalResults:   totalResults,
 		SearchTime:     raw.SearchInformation.TimeTakenDisplay,
 	}, nil
+}
+
+// VerifyKey checks whether the configured API key is valid by calling the
+// SerpAPI account endpoint and inspecting the response.
+func (a *Adapter) VerifyKey() error {
+	params := url.Values{"api_key": {a.apiKey}}
+	httpReq, err := http.NewRequest("GET", a.accountURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return fmt.Errorf("creating serpapi account request: %w", err)
+	}
+
+	resp, err := a.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("serpapi account request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("serpapi: invalid API key")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("serpapi account endpoint returned status %d", resp.StatusCode)
+	}
+
+	var acct struct {
+		AccountEmail string `json:"account_email"`
+		PlanName     string `json:"plan_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&acct); err != nil {
+		return fmt.Errorf("serpapi: malformed account response: %w", err)
+	}
+
+	if acct.AccountEmail == "" {
+		return fmt.Errorf("serpapi: invalid API key (no account email in response)")
+	}
+
+	return nil
 }

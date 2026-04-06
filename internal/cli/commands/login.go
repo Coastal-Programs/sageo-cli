@@ -9,6 +9,8 @@ import (
 	"charm.land/huh/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
+	"github.com/jakeschepis/sageo-cli/internal/dataforseo"
+	"github.com/jakeschepis/sageo-cli/internal/serp/serpapi"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -132,15 +134,35 @@ func printLoginHeader() {
 func selectLoginAction() (loginAction, error) {
 	choice := loginActionFinish
 
+	cfg, err := config.Load()
+	if err != nil {
+		return "", fmt.Errorf("failed to load config: %w", err)
+	}
+
+	gscLabel := "Google Search Console (OAuth)"
+	if isGSCConfigured(cfg) {
+		gscLabel += " (configured)"
+	}
+
+	dataForSEOLabel := "DataForSEO (SERP + AEO/GEO)"
+	if isDataForSEOConfigured(cfg) {
+		dataForSEOLabel += " (configured)"
+	}
+
+	serpAPILabel := "SerpAPI (API key)"
+	if isSerpAPIConfigured(cfg) {
+		serpAPILabel += " (configured)"
+	}
+
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[loginAction]().
 				Title("Select a setup action").
 				Description(selectControlsHint).
 				Options(
-					huh.NewOption("Google Search Console (OAuth)", loginActionGSC),
-					huh.NewOption("DataForSEO (SERP + AEO/GEO)", loginActionDataForSEO),
-					huh.NewOption("SerpAPI (API key)", loginActionSerpAPI),
+					huh.NewOption(gscLabel, loginActionGSC),
+					huh.NewOption(dataForSEOLabel, loginActionDataForSEO),
+					huh.NewOption(serpAPILabel, loginActionSerpAPI),
 					huh.NewOption("Set up all services", loginActionAll),
 					huh.NewOption("Finish", loginActionFinish),
 				).
@@ -237,15 +259,28 @@ func runDataForSEOLoginForm() error {
 		return err
 	}
 
+	trimmedLogin := strings.TrimSpace(login)
+	trimmedPassword := strings.TrimSpace(password)
+
+	fmt.Println(loginInfoStyle.Render("• Verifying DataForSEO credentials..."))
+
+	client := dataforseo.New(trimmedLogin, trimmedPassword)
+	if err := client.VerifyCredentials(); err != nil {
+		detail := sanitizeVerifyError(err, trimmedLogin, trimmedPassword)
+		fmt.Println(loginErrorStyle.Render("✗ DataForSEO credential verification failed: " + detail))
+		fmt.Println()
+		return nil
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if err := cfg.Set("dataforseo_login", strings.TrimSpace(login)); err != nil {
+	if err := cfg.Set("dataforseo_login", trimmedLogin); err != nil {
 		return fmt.Errorf("failed to set DataForSEO login: %w", err)
 	}
-	if err := cfg.Set("dataforseo_password", strings.TrimSpace(password)); err != nil {
+	if err := cfg.Set("dataforseo_password", trimmedPassword); err != nil {
 		return fmt.Errorf("failed to set DataForSEO password: %w", err)
 	}
 	if err := cfg.Set("serp_provider", "dataforseo"); err != nil {
@@ -255,7 +290,7 @@ func runDataForSEOLoginForm() error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Println(loginSuccessStyle.Render("✓ DataForSEO configured"))
+	fmt.Println(loginSuccessStyle.Render("✓ DataForSEO configured (verified)"))
 	fmt.Println()
 	return nil
 }
@@ -281,19 +316,31 @@ func runSerpAPILoginForm() error {
 		return err
 	}
 
+	trimmedKey := strings.TrimSpace(apiKey)
+
+	fmt.Println(loginInfoStyle.Render("• Verifying SerpAPI key..."))
+
+	adapter := serpapi.New(trimmedKey)
+	if err := adapter.VerifyKey(); err != nil {
+		detail := sanitizeVerifyError(err, trimmedKey)
+		fmt.Println(loginErrorStyle.Render("✗ SerpAPI key verification failed: " + detail))
+		fmt.Println()
+		return nil
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if err := cfg.Set("serp_api_key", strings.TrimSpace(apiKey)); err != nil {
+	if err := cfg.Set("serp_api_key", trimmedKey); err != nil {
 		return fmt.Errorf("failed to set API key: %w", err)
 	}
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Println(loginSuccessStyle.Render("✓ SerpAPI configured"))
+	fmt.Println(loginSuccessStyle.Render("✓ SerpAPI configured (verified)"))
 	fmt.Println()
 	return nil
 }
@@ -317,9 +364,9 @@ func printLoginSummary() {
 
 func buildLoginSummaryLines(cfg *config.Config) []string {
 	lines := []string{
-		fmt.Sprintf("  • Google Search Console: %s", serviceSummaryStatus(cfg.GSCClientID != "" && cfg.GSCClientSecret != "", redactValue(cfg.GSCClientID))),
-		fmt.Sprintf("  • DataForSEO: %s", serviceSummaryStatus(cfg.DataForSEOLogin != "" && cfg.DataForSEOPassword != "", cfg.DataForSEOLogin)),
-		fmt.Sprintf("  • SerpAPI: %s", serviceSummaryStatus(cfg.SERPAPIKey != "", redactValue(cfg.SERPAPIKey))),
+		fmt.Sprintf("  • Google Search Console: %s", serviceSummaryStatus(isGSCConfigured(cfg), redactValue(cfg.GSCClientID))),
+		fmt.Sprintf("  • DataForSEO: %s", serviceSummaryStatus(isDataForSEOConfigured(cfg), cfg.DataForSEOLogin)),
+		fmt.Sprintf("  • SerpAPI: %s", serviceSummaryStatus(isSerpAPIConfigured(cfg), redactValue(cfg.SERPAPIKey))),
 	}
 
 	if cfg.SERPProvider != "" {
@@ -348,6 +395,18 @@ func validateRequired(name string) func(string) error {
 	}
 }
 
+func isDataForSEOConfigured(cfg *config.Config) bool {
+	return strings.TrimSpace(cfg.DataForSEOLogin) != "" && strings.TrimSpace(cfg.DataForSEOPassword) != ""
+}
+
+func isSerpAPIConfigured(cfg *config.Config) bool {
+	return strings.TrimSpace(cfg.SERPAPIKey) != ""
+}
+
+func isGSCConfigured(cfg *config.Config) bool {
+	return strings.TrimSpace(cfg.GSCClientID) != "" && strings.TrimSpace(cfg.GSCClientSecret) != ""
+}
+
 func loginTheme() huh.Theme {
 	return huh.ThemeFunc(func(isDark bool) *huh.Styles {
 		styles := huh.ThemeCharm(isDark)
@@ -374,4 +433,23 @@ func redactValue(v string) string {
 		return "****"
 	}
 	return v[:4] + "****"
+}
+
+// sanitizeVerifyError returns a user-safe error detail string with any
+// secret-like tokens (long hex/base64 strings, emails, passwords) scrubbed.
+func sanitizeVerifyError(err error, secrets ...string) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+
+	// Remove any literal secret values that were passed in.
+	for _, s := range secrets {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			msg = strings.ReplaceAll(msg, s, "****")
+		}
+	}
+
+	return msg
 }

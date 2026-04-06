@@ -10,6 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/auth"
@@ -163,11 +166,27 @@ func loginGSC(format *string, verbose *bool) error {
 		}
 	}()
 
+	openedBrowser, browserErr := openBrowser(authURL)
+
+	message := "Open the URL in your browser to authorize Sageo with Google Search Console"
+	if openedBrowser {
+		message = "Opened your browser for authorization. If it didn't open, use the auth_url below."
+	} else if browserErr != nil {
+		message = fmt.Sprintf("Could not automatically open browser (%v). Copy auth_url below into your browser.", browserErr)
+	}
+
 	// Print the auth URL for the user
 	_ = output.PrintSuccess(map[string]any{
-		"status":   "awaiting_authorization",
-		"auth_url": authURL,
-		"message":  "Open the URL in your browser to authorize Sageo with Google Search Console",
+		"status":         "awaiting_authorization",
+		"auth_url":       authURL,
+		"message":        message,
+		"browser_opened": openedBrowser,
+		"browser_open_err": func() string {
+			if browserErr == nil {
+				return ""
+			}
+			return browserErr.Error()
+		}(),
 	}, map[string]any{
 		"verbose": *verbose,
 	}, output.Format(*format))
@@ -247,6 +266,43 @@ func exchangeGSCCode(cfg *config.Config, code, redirectURI string) (auth.TokenRe
 		ExpiresAt:    expiresAt,
 		Scope:        tokenResp.Scope,
 	}, nil
+}
+
+// errNoDisplay is returned when no GUI display is available on Linux.
+var errNoDisplay = fmt.Errorf("no GUI display available (DISPLAY and WAYLAND_DISPLAY are unset); open the URL manually in a browser")
+
+// hasDisplay reports whether a graphical display server is reachable.
+// It checks the DISPLAY and WAYLAND_DISPLAY environment variables.
+var hasDisplay = func() bool {
+	return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
+}
+
+func openBrowser(targetURL string) (bool, error) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", targetURL)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", targetURL)
+	default:
+		// On Linux/BSD, verify a display server is available before
+		// attempting xdg-open; headless environments would hang or fail.
+		if !hasDisplay() {
+			return false, errNoDisplay
+		}
+		cmd = exec.Command("xdg-open", targetURL)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	return true, nil
 }
 
 func decodeJSON(r io.Reader, v any) error {

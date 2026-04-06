@@ -86,6 +86,67 @@ func (c *Client) Post(endpoint string, body any) ([]byte, error) {
 	return data, nil
 }
 
+// verifyTask represents a single task entry in the DataForSEO response.
+type verifyTask struct {
+	StatusCode    int    `json:"status_code"`
+	StatusMessage string `json:"status_message"`
+}
+
+// verifyResponse is the minimal envelope returned by /v3/appendix/user_data.
+type verifyResponse struct {
+	StatusCode    int          `json:"status_code"`
+	StatusMessage string       `json:"status_message"`
+	Tasks         []verifyTask `json:"tasks"`
+}
+
+// VerifyCredentials checks the client's login/password against the lightweight
+// /v3/appendix/user_data endpoint. Credentials are considered valid only when
+// the HTTP status is 200, the envelope status_code is 20000, and the first
+// task's status_code is also 20000.
+func (c *Client) VerifyCredentials() error {
+	req, err := http.NewRequest("GET", c.baseURL+"/v3/appendix/user_data", nil)
+	if err != nil {
+		return fmt.Errorf("creating verify request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Basic "+basicAuth(c.login, c.password))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("transport error verifying credentials: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading verify response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("credential verification failed: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var envelope verifyResponse
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return fmt.Errorf("malformed verify response: %w", err)
+	}
+
+	if envelope.StatusCode != 20000 {
+		return fmt.Errorf("credential verification rejected: API status %d – %s", envelope.StatusCode, envelope.StatusMessage)
+	}
+
+	if len(envelope.Tasks) == 0 {
+		return fmt.Errorf("credential verification failed: response contains no tasks")
+	}
+
+	task := envelope.Tasks[0]
+	if task.StatusCode != 20000 {
+		return fmt.Errorf("credential verification task failed: task status %d – %s", task.StatusCode, task.StatusMessage)
+	}
+
+	return nil
+}
+
 func basicAuth(login, password string) string {
 	return base64.StdEncoding.EncodeToString([]byte(login + ":" + password))
 }

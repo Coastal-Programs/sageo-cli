@@ -75,6 +75,8 @@ sageo config set approval_threshold_usd 1.00
 
 > `sageo login` is terminal-only (requires an interactive TTY), and secret inputs are masked during entry.
 
+> DataForSEO and SerpAPI credentials are validated against the live API during `sageo login`. If credentials are invalid, you'll see a clear error and no verified-success state is stored — fix the credentials and run `sageo login` again.
+
 > DataForSEO API password is separate from your account password. Find it at `app.dataforseo.com/api-access`.
 
 ## Commands

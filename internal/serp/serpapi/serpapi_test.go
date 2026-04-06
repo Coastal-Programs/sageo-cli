@@ -118,3 +118,118 @@ func TestName(t *testing.T) {
 		t.Fatalf("expected 'serpapi', got %q", a.Name())
 	}
 }
+
+func TestVerifyKeySuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("api_key") != "valid-key" {
+			t.Errorf("expected api_key=valid-key, got %q", r.URL.Query().Get("api_key"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"account_email":      "user@example.com",
+			"plan_name":          "Free",
+			"searches_per_month": 100,
+			"this_month_usage":   5,
+		})
+	}))
+	defer srv.Close()
+
+	a := New("valid-key", WithAccountURL(srv.URL))
+	if err := a.VerifyKey(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestVerifyKeyInvalidKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	a := New("bad-key", WithAccountURL(srv.URL))
+	err := a.VerifyKey()
+	if err == nil {
+		t.Fatal("expected error for invalid key")
+	}
+	if got := err.Error(); got != "serpapi: invalid API key" {
+		t.Fatalf("unexpected error message: %s", got)
+	}
+}
+
+func TestVerifyKeyForbidden(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	a := New("bad-key", WithAccountURL(srv.URL))
+	err := a.VerifyKey()
+	if err == nil {
+		t.Fatal("expected error for forbidden key")
+	}
+	if got := err.Error(); got != "serpapi: invalid API key" {
+		t.Fatalf("unexpected error message: %s", got)
+	}
+}
+
+func TestVerifyKeyServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	a := New("key", WithAccountURL(srv.URL))
+	err := a.VerifyKey()
+	if err == nil {
+		t.Fatal("expected error for server error")
+	}
+	expected := "serpapi account endpoint returned status 500"
+	if got := err.Error(); got != expected {
+		t.Fatalf("expected %q, got %q", expected, got)
+	}
+}
+
+func TestVerifyKeyMalformedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	a := New("key", WithAccountURL(srv.URL))
+	err := a.VerifyKey()
+	if err == nil {
+		t.Fatal("expected error for malformed body")
+	}
+	if got := err.Error(); len(got) == 0 {
+		t.Fatal("expected non-empty error message")
+	}
+}
+
+func TestVerifyKeyMissingEmail(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"plan_name": "Free",
+		})
+	}))
+	defer srv.Close()
+
+	a := New("key", WithAccountURL(srv.URL))
+	err := a.VerifyKey()
+	if err == nil {
+		t.Fatal("expected error when account_email is missing")
+	}
+	expected := "serpapi: invalid API key (no account email in response)"
+	if got := err.Error(); got != expected {
+		t.Fatalf("expected %q, got %q", expected, got)
+	}
+}
+
+func TestVerifyKeyTransportError(t *testing.T) {
+	a := New("key", WithAccountURL("http://127.0.0.1:1"))
+	err := a.VerifyKey()
+	if err == nil {
+		t.Fatal("expected error for transport failure")
+	}
+}
