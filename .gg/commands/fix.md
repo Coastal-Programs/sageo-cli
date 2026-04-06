@@ -11,7 +11,8 @@ Run these commands and capture their full output (including errors). Do not stop
 
 ```bash
 # Format check (reports files that would change)
-gofmt -l ./...
+# gofmt does not accept ./... package patterns; list concrete files
+gofmt -l $(find . -type f -name '*.go' -not -path './.git/*')
 
 # Vet (type and correctness checks)
 go vet ./...
@@ -51,7 +52,7 @@ For each domain that has issues, use the subagent tool to spawn a sub-agent to f
 After all agents complete, re-run all checks to verify all issues are resolved:
 
 ```bash
-gofmt -l ./...
+gofmt -l $(find . -type f -name '*.go' -not -path './.git/*')
 go vet ./...
 golangci-lint run ./... 2>&1 || true
 go build ./...

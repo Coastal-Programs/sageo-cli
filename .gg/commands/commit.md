@@ -3,11 +3,10 @@ name: commit
 description: Run checks, commit with AI message, and push
 ---
 
-1. Run quality checks. Fix ALL errors before continuing:
+1. Run fast quality checks. Fix ALL errors before continuing:
    ```bash
-   gofmt -w ./...
+   # Keep this lightweight: no release/build packaging steps.
    go vet ./...
-   go build ./...
    go test -race ./...
    ```
 

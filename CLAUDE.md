@@ -107,3 +107,13 @@ make vet
 make test
 make lint
 ```
+
+## Local CLI Install/Update
+
+Use a single global command (`sageo`) by installing from source:
+
+```bash
+make install
+```
+
+If `sageo` is not found after install, ensure `~/go/bin` is on PATH and reload shell config.
