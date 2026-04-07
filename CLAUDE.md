@@ -2,7 +2,7 @@
 
 ## Scope
 
-The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, Labs, and opportunities services.
+The CLI has working crawl, audit, report, provider, auth, GSC, PSI, SERP, AEO, GEO, Labs, backlinks, merge, and opportunities services.
 
 ### Implemented
 - BFS website crawler with depth/page limits and concurrent fetching
@@ -11,15 +11,38 @@ The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, L
 - Provider abstraction with built-in `local` HTTP fetcher
 - Full crawl → audit → report pipeline
 - Google Search Console integration (sites list, query pages/keywords, opportunity seeds)
-- OAuth2 authentication flow for GSC with token persistence
+- OAuth2 authentication flow for GSC with token persistence and auto-refresh
+- PageSpeed Insights integration (Core Web Vitals: LCP, CLS, FCP, TBT, SI)
+- PSI auto-persistence to state.json with upsert by URL+strategy
+- PSI auth cascade: API key → GSC OAuth token → unauthenticated
 - SERP analysis adapters (SerpAPI and DataForSEO)
+- SERP feature detection (9 types: Featured Snippets, PAA, AI Overviews, Local Pack, Knowledge Graph, Top Stories, Inline Videos, Inline Shopping, Inline Images)
+- SERP batch analysis via DataForSEO Standard queue ($0.0006/keyword, up to 100 keywords)
+- SERP data persistence to state.json (features, related questions, top domains, our position)
 - AEO and GEO command groups backed by DataForSEO
-- Labs command group for DataForSEO Labs intelligence (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`)
+- Labs command group (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`, `bulk-difficulty`)
+- Labs keyword data persistence to state.json (difficulty, volume, intent, position)
+- Labs bulk keyword difficulty with `--from-gsc` flag to auto-load keywords from state
+- Labs competitor data persistence to state.json
+- Backlinks API integration (`summary`, `list`, `referring-domains`, `competitors`, `gap`)
+- Backlinks gap auto-loads competitors from state.json when `--competitors` not provided
+- Backlink data persistence to state.json (summary metrics + gap domains)
 - Cost-aware execution contracts (`estimated_cost`, `requires_approval`, `cached`, `source`, `fetched_at`)
-- `--dry-run` support for paid workflows
+- `--dry-run` support for all paid workflows
 - File-based response caching with TTL
 - Approval gate blocking execution when estimated cost exceeds threshold
-- Opportunity detection merging GSC + optional SERP evidence
+- Project state management (`init`, `status`, `analyze`)
+- Cross-source merge engine with 13 rules:
+  - Rules 1–5: crawl + GSC rules (ranking-but-not-clicking, not-indexed, issues-on-high-traffic-page, thin-content-ranking-well, schema-not-showing)
+  - Rule 6: PSI + GSC (slow-core-web-vitals)
+  - Rules 7–9: SERP-aware (ai-overview-eating-clicks, featured-snippet-opportunity, paa-content-opportunity)
+  - Rules 10–11: Labs-aware (easy-win-keyword, informational-content-gap)
+  - Rules 12–13: Backlinks-aware (weak-backlink-profile, broken-backlinks-found)
+- Priority scoring system (10–100) with automatic sorting by urgency
+- Interactive login flow (`sageo login`) for GSC OAuth and DataForSEO credentials
+- Default locale: Australia (location_code 2036, language `en`) for all DataForSEO calls
+- URL normalisation utilities for cross-source data joining
+- Opportunity detection merging GSC + optional SERP evidence (legacy, superseded by merge engine)
 
 ### Do now
 - Keep command architecture stable
@@ -28,10 +51,10 @@ The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, L
 - Extend audit rules as needed
 - Add new providers via the registry pattern
 - Add new SERP providers behind the `serp.Provider` interface
+- Extend merge rules when new data sources are added
 
 ### Do not do without explicit instructions
 - Add multiple paid SEO providers at once
-- Add backlink/domain analytics suites prematurely
 - Embed OpenAI/Anthropic inside the CLI by default
 - Change the output envelope contract incompatibly
 - Restructure the command hierarchy unnecessarily
@@ -42,17 +65,23 @@ The CLI has working crawl, audit, report, provider, auth, GSC, SERP, AEO, GEO, L
 - CLI framework: Cobra
 - Entry point: `cmd/sageo/main.go`
 - Root command wiring: `internal/cli/root.go`
-- Command files: `internal/cli/commands/*.go` (includes `labs.go`)
+- Command files: `internal/cli/commands/*.go`
 - Config package: `internal/common/config`
 - Cost package: `internal/common/cost`
 - Cache package: `internal/common/cache`
+- URL normalisation: `internal/common/urlnorm`
+- Retry utilities: `internal/common/retry`
 - Output package: `pkg/output`
 - Provider package: `internal/provider`
 - Auth package: `internal/auth`
 - GSC package: `internal/gsc`
+- PSI package: `internal/psi`
 - SERP package: `internal/serp` (adapters: `internal/serp/serpapi`, `internal/serp/dataforseo`)
 - DataForSEO shared client: `internal/dataforseo`
 - Opportunities package: `internal/opportunities`
+- Backlinks package: `internal/backlinks`
+- Merge engine: `internal/merge`
+- State persistence: `internal/state`
 - Domain packages: `internal/crawl`, `internal/audit`, `internal/report`
 
 ## Output Contract
@@ -89,6 +118,9 @@ Supported env overrides:
 - `SAGEO_GSC_PROPERTY`
 - `SAGEO_GSC_CLIENT_ID`
 - `SAGEO_GSC_CLIENT_SECRET`
+- `SAGEO_PSI_API_KEY`
+
+> Backlinks API uses the existing DataForSEO credentials (`SAGEO_DATAFORSEO_LOGIN` / `SAGEO_DATAFORSEO_PASSWORD`) — no new env vars needed.
 
 ## Validation Commands
 

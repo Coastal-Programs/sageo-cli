@@ -89,10 +89,15 @@ func (a *Adapter) Analyze(req serp.AnalyzeRequest) (*serp.AnalyzeResponse, error
 	}
 	if req.Location != "" {
 		params.Set("location", req.Location)
+	} else {
+		params.Set("location", "Perth,Western Australia,Australia")
 	}
 	if req.Language != "" {
 		params.Set("hl", req.Language)
+	} else {
+		params.Set("hl", "en")
 	}
+	params.Set("gl", "au") // default to Australian Google results
 	if req.NumResults > 0 {
 		params.Set("num", strconv.Itoa(req.NumResults))
 	}
@@ -112,25 +117,25 @@ func (a *Adapter) Analyze(req serp.AnalyzeRequest) (*serp.AnalyzeResponse, error
 		return nil, fmt.Errorf("serpapi returned status %d", resp.StatusCode)
 	}
 
-	var raw struct {
-		OrganicResults []struct {
-			Position int    `json:"position"`
-			Title    string `json:"title"`
-			Link     string `json:"link"`
-			Snippet  string `json:"snippet"`
-		} `json:"organic_results"`
-		SearchInformation struct {
-			TotalResults     string  `json:"total_results"`
-			TimeTakenDisplay float64 `json:"time_taken_displayed"`
-		} `json:"search_information"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	// Decode into a generic map so we can inspect top-level keys for SERP features.
+	var topLevel map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&topLevel); err != nil {
 		return nil, fmt.Errorf("decoding serpapi response: %w", err)
 	}
 
-	results := make([]serp.OrganicResult, 0, len(raw.OrganicResults))
-	for _, r := range raw.OrganicResults {
+	// Parse organic results.
+	var organicRaw []struct {
+		Position int    `json:"position"`
+		Title    string `json:"title"`
+		Link     string `json:"link"`
+		Snippet  string `json:"snippet"`
+	}
+	if raw, ok := topLevel["organic_results"]; ok {
+		_ = json.Unmarshal(raw, &organicRaw)
+	}
+
+	results := make([]serp.OrganicResult, 0, len(organicRaw))
+	for _, r := range organicRaw {
 		parsed, _ := url.Parse(r.Link)
 		domain := ""
 		if parsed != nil {
@@ -145,13 +150,134 @@ func (a *Adapter) Analyze(req serp.AnalyzeRequest) (*serp.AnalyzeResponse, error
 		})
 	}
 
-	totalResults, _ := strconv.ParseInt(raw.SearchInformation.TotalResults, 10, 64)
+	// Parse search information.
+	var searchInfo struct {
+		TotalResults     string  `json:"total_results"`
+		TimeTakenDisplay float64 `json:"time_taken_displayed"`
+	}
+	if raw, ok := topLevel["search_information"]; ok {
+		_ = json.Unmarshal(raw, &searchInfo)
+	}
+	totalResults, _ := strconv.ParseInt(searchInfo.TotalResults, 10, 64)
+
+	// Parse SERP features.
+	var features []serp.SERPFeature
+	var relatedQuestions []serp.RelatedQuestion
+	hasAIOverview := false
+
+	// answer_box → featured snippet
+	if raw, ok := topLevel["answer_box"]; ok {
+		var ab struct {
+			Type    string `json:"type"`
+			Title   string `json:"title"`
+			Answer  string `json:"answer"`
+			Snippet string `json:"snippet"`
+			Link    string `json:"link"`
+		}
+		if json.Unmarshal(raw, &ab) == nil {
+			snippet := ab.Snippet
+			if snippet == "" {
+				snippet = ab.Answer
+			}
+			features = append(features, serp.SERPFeature{
+				Type:    serp.FeatureFeaturedSnippet,
+				Title:   ab.Title,
+				URL:     ab.Link,
+				Snippet: snippet,
+			})
+		}
+	}
+
+	// related_questions → people also ask
+	if raw, ok := topLevel["related_questions"]; ok {
+		var rqs []struct {
+			Question string `json:"question"`
+			Snippet  string `json:"snippet"`
+			Title    string `json:"title"`
+			Link     string `json:"link"`
+		}
+		if json.Unmarshal(raw, &rqs) == nil && len(rqs) > 0 {
+			features = append(features, serp.SERPFeature{
+				Type: serp.FeaturePeopleAlsoAsk,
+			})
+			for _, rq := range rqs {
+				relatedQuestions = append(relatedQuestions, serp.RelatedQuestion{
+					Question: rq.Question,
+					Snippet:  rq.Snippet,
+					Title:    rq.Title,
+					Link:     rq.Link,
+				})
+			}
+		}
+	}
+
+	// local_results → local pack
+	if _, ok := topLevel["local_results"]; ok {
+		features = append(features, serp.SERPFeature{
+			Type: serp.FeatureLocalPack,
+		})
+	}
+
+	// knowledge_graph
+	if raw, ok := topLevel["knowledge_graph"]; ok {
+		var kg struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			Source      string `json:"source"`
+		}
+		if json.Unmarshal(raw, &kg) == nil {
+			features = append(features, serp.SERPFeature{
+				Type:    serp.FeatureKnowledgeGraph,
+				Title:   kg.Title,
+				Snippet: kg.Description,
+			})
+		}
+	}
+
+	// ai_overview
+	if _, ok := topLevel["ai_overview"]; ok {
+		hasAIOverview = true
+		features = append(features, serp.SERPFeature{
+			Type: serp.FeatureAIOverview,
+		})
+	}
+
+	// top_stories
+	if _, ok := topLevel["top_stories"]; ok {
+		features = append(features, serp.SERPFeature{
+			Type: serp.FeatureTopStories,
+		})
+	}
+
+	// inline_videos
+	if _, ok := topLevel["inline_videos"]; ok {
+		features = append(features, serp.SERPFeature{
+			Type: serp.FeatureInlineVideos,
+		})
+	}
+
+	// inline_images
+	if _, ok := topLevel["inline_images"]; ok {
+		features = append(features, serp.SERPFeature{
+			Type: serp.FeatureInlineImages,
+		})
+	}
+
+	// shopping_results
+	if _, ok := topLevel["shopping_results"]; ok {
+		features = append(features, serp.SERPFeature{
+			Type: serp.FeatureInlineShopping,
+		})
+	}
 
 	return &serp.AnalyzeResponse{
-		Query:          req.Query,
-		OrganicResults: results,
-		TotalResults:   totalResults,
-		SearchTime:     raw.SearchInformation.TimeTakenDisplay,
+		Query:            req.Query,
+		OrganicResults:   results,
+		Features:         features,
+		RelatedQuestions: relatedQuestions,
+		HasAIOverview:    hasAIOverview,
+		TotalResults:     totalResults,
+		SearchTime:       searchInfo.TimeTakenDisplay,
 	}, nil
 }
 

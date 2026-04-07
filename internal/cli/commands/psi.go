@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jakeschepis/sageo-cli/internal/auth"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
 	"github.com/jakeschepis/sageo-cli/internal/psi"
 	"github.com/jakeschepis/sageo-cli/internal/state"
@@ -38,7 +39,7 @@ func newPSIRunCmd(format *string, verbose *bool) *cobra.Command {
 					fmt.Errorf("use --url to specify the page to analyse"), nil, output.Format(*format))
 			}
 
-			// Resolve API key: env var → config → empty (unauthenticated).
+			// Resolve auth: explicit API key → GSC OAuth token → unauthenticated.
 			apiKey := os.Getenv("SAGEO_PSI_API_KEY")
 			if apiKey == "" {
 				cfg, err := config.Load()
@@ -47,7 +48,14 @@ func newPSIRunCmd(format *string, verbose *bool) *cobra.Command {
 				}
 			}
 
-			client := psi.NewClient(apiKey, nil)
+			var client *psi.Client
+			if apiKey != "" {
+				client = psi.NewClient(apiKey, nil)
+			} else if token, err := resolveGSCAccessToken(); err == nil && token != "" {
+				client = psi.NewClientWithToken(token, nil)
+			} else {
+				client = psi.NewClient("", nil)
+			}
 
 			result, err := client.Run(targetURL, strategy)
 			if err != nil {
@@ -82,6 +90,43 @@ func newPSIRunCmd(format *string, verbose *bool) *cobra.Command {
 	cmd.Flags().StringVar(&strategy, "strategy", "mobile", "Analysis strategy: mobile or desktop")
 
 	return cmd
+}
+
+// resolveGSCAccessToken returns a valid GSC OAuth2 access token if one is
+// available, refreshing it automatically when expired. Returns ("", err) when
+// no usable token exists.
+func resolveGSCAccessToken() (string, error) {
+	store := auth.NewFileTokenStore()
+
+	st, err := store.Status("gsc")
+	if err != nil {
+		return "", err
+	}
+
+	if st.Authenticated {
+		token, err := store.Load("gsc")
+		if err != nil {
+			return "", err
+		}
+		return token.AccessToken, nil
+	}
+
+	// Token exists but expired — try refresh.
+	token, err := store.Load("gsc")
+	if err != nil || token.RefreshToken == "" {
+		return "", fmt.Errorf("no valid GSC token")
+	}
+
+	cfg, err := config.Load()
+	if err != nil || cfg.GSCClientID == "" || cfg.GSCClientSecret == "" {
+		return "", fmt.Errorf("cannot refresh — missing client credentials")
+	}
+
+	refreshed, err := store.RefreshGSCToken(cfg.GSCClientID, cfg.GSCClientSecret)
+	if err != nil {
+		return "", err
+	}
+	return refreshed.AccessToken, nil
 }
 
 // upsertPSIResult adds or replaces the PSI result for the given URL+strategy pair.

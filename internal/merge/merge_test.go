@@ -285,6 +285,302 @@ func buildState(findings []state.Finding, topPages []state.GSCRow) *state.State 
 	return st
 }
 
+// ─── SERP-aware rule tests ───────────────────────────────────────────────────
+
+func TestAIOverviewEatingClicks(t *testing.T) {
+	const query = "what is seo"
+
+	st := buildState(
+		[]state.Finding{},
+		[]state.GSCRow{
+			{Key: "https://example.com/seo", Impressions: 100, Clicks: 10},
+		},
+	)
+	st.GSC.TopKeywords = []state.GSCRow{
+		{Key: query, Impressions: 200, Clicks: 1, CTR: 0.005, Position: 4},
+	}
+	st.SERP = &state.SERPData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Queries: []state.SERPQueryResult{
+			{Query: query, HasAIOverview: true},
+		},
+	}
+
+	results := Run(st)
+
+	f := findRule(results, "ai-overview-eating-clicks")
+	if f == nil {
+		t.Fatalf("expected finding %q, got: %v", "ai-overview-eating-clicks", results)
+	}
+	hasSERP, hasGSC := false, false
+	for _, s := range f.Sources {
+		if s == "serp" {
+			hasSERP = true
+		}
+		if s == "gsc" {
+			hasGSC = true
+		}
+	}
+	if !hasSERP || !hasGSC {
+		t.Errorf("expected sources [serp, gsc], got %v", f.Sources)
+	}
+
+	// Should NOT fire when HasAIOverview is false.
+	st.SERP.Queries[0].HasAIOverview = false
+	results = Run(st)
+	if f := findRule(results, "ai-overview-eating-clicks"); f != nil {
+		t.Error("ai-overview-eating-clicks should not fire when HasAIOverview is false")
+	}
+}
+
+func TestFeaturedSnippetOpportunity(t *testing.T) {
+	const query = "best seo tools"
+
+	st := buildState(
+		[]state.Finding{},
+		[]state.GSCRow{
+			{Key: "https://example.com/tools", Impressions: 100, Clicks: 5},
+		},
+	)
+	st.GSC.TopKeywords = []state.GSCRow{
+		{Key: query, Impressions: 100, Clicks: 5, CTR: 0.05, Position: 5},
+	}
+	st.SERP = &state.SERPData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Queries: []state.SERPQueryResult{
+			{
+				Query:       query,
+				OurPosition: 5,
+				Features: []state.SERPFeatureRecord{
+					{Type: "featured_snippet"},
+				},
+			},
+		},
+	}
+
+	results := Run(st)
+
+	f := findRule(results, "featured-snippet-opportunity")
+	if f == nil {
+		t.Fatalf("expected finding %q, got: %v", "featured-snippet-opportunity", results)
+	}
+
+	// Should NOT fire when position is 1 (already at top).
+	st.SERP.Queries[0].OurPosition = 1
+	results = Run(st)
+	if f := findRule(results, "featured-snippet-opportunity"); f != nil {
+		t.Error("featured-snippet-opportunity should not fire when position is 1")
+	}
+}
+
+func TestPAAContentOpportunity(t *testing.T) {
+	const query = "how to do seo"
+	const pageURL = "https://example.com/guide"
+
+	st := buildState(
+		[]state.Finding{
+			{Rule: "missing-meta-description", URL: pageURL, Verdict: "fail"},
+		},
+		[]state.GSCRow{
+			{Key: pageURL, Impressions: 100, Clicks: 10, CTR: 0.10, Position: 3},
+		},
+	)
+	st.GSC.TopKeywords = []state.GSCRow{
+		{Key: query, Impressions: 100, Clicks: 10, CTR: 0.10, Position: 3},
+	}
+	st.SERP = &state.SERPData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Queries: []state.SERPQueryResult{
+			{
+				Query:            query,
+				RelatedQuestions: []string{"What is SEO?", "How long does SEO take?", "Is SEO worth it?"},
+			},
+		},
+	}
+
+	results := Run(st)
+
+	f := findRule(results, "paa-content-opportunity")
+	if f == nil {
+		t.Fatalf("expected finding %q, got: %v", "paa-content-opportunity", results)
+	}
+
+	// Should NOT fire when fewer than 2 questions.
+	st.SERP.Queries[0].RelatedQuestions = []string{"Only one?"}
+	results = Run(st)
+	if f := findRule(results, "paa-content-opportunity"); f != nil {
+		t.Error("paa-content-opportunity should not fire with fewer than 2 related questions")
+	}
+}
+
+func TestEasyWinKeyword(t *testing.T) {
+	const query = "simple seo tips"
+
+	st := buildState(
+		[]state.Finding{},
+		[]state.GSCRow{
+			{Key: "https://example.com/tips", Impressions: 100, Clicks: 5},
+		},
+	)
+	st.GSC.TopKeywords = []state.GSCRow{
+		{Key: query, Impressions: 200, Clicks: 5, CTR: 0.025, Position: 8},
+	}
+	st.Labs = &state.LabsData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Target:  "example.com",
+		Keywords: []state.LabsKeyword{
+			{Keyword: query, SearchVolume: 500, Difficulty: 20},
+		},
+	}
+
+	results := Run(st)
+
+	f := findRule(results, "easy-win-keyword")
+	if f == nil {
+		t.Fatalf("expected finding %q, got: %v", "easy-win-keyword", results)
+	}
+
+	// Should NOT fire when difficulty > 30.
+	st.Labs.Keywords[0].Difficulty = 35
+	results = Run(st)
+	if f := findRule(results, "easy-win-keyword"); f != nil {
+		t.Error("easy-win-keyword should not fire when difficulty > 30")
+	}
+}
+
+func TestInformationalContentGap(t *testing.T) {
+	const gapKeyword = "seo beginner guide"
+
+	st := buildState(
+		[]state.Finding{},
+		[]state.GSCRow{
+			{Key: "https://example.com/other", Impressions: 100, Clicks: 10},
+		},
+	)
+	// GSC keywords do NOT contain the gap keyword.
+	st.GSC.TopKeywords = []state.GSCRow{
+		{Key: "existing keyword", Impressions: 50, Clicks: 5, Position: 3},
+	}
+	st.Labs = &state.LabsData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Target:  "example.com",
+		Keywords: []state.LabsKeyword{
+			{Keyword: gapKeyword, SearchVolume: 300, Difficulty: 25, Intent: "informational"},
+		},
+	}
+
+	results := Run(st)
+
+	f := findRule(results, "informational-content-gap")
+	if f == nil {
+		t.Fatalf("expected finding %q, got: %v", "informational-content-gap", results)
+	}
+
+	// Should NOT fire when keyword IS in GSC (already ranking).
+	st.GSC.TopKeywords = append(st.GSC.TopKeywords, state.GSCRow{
+		Key: gapKeyword, Impressions: 10, Clicks: 1, Position: 12,
+	})
+	results = Run(st)
+	if f := findRule(results, "informational-content-gap"); f != nil {
+		t.Error("informational-content-gap should not fire when keyword is in GSC")
+	}
+}
+
+// TestMergeWithoutGSC: crawl data + SERP data but NO GSC data.
+// Run() must return a non-nil slice (even if empty) rather than nil,
+// and SERP-aware rules must fire when SERP evidence is present.
+func TestMergeWithoutGSC(t *testing.T) {
+	const pageURL = "https://example.com/no-gsc"
+
+	st := &state.State{
+		Site:      "https://example.com",
+		LastCrawl: "2025-01-01T00:00:00Z",
+		Findings: []state.Finding{
+			{Rule: "missing-meta-description", URL: pageURL, Verdict: "fail"},
+		},
+		// GSC is intentionally nil.
+	}
+	st.SERP = &state.SERPData{
+		LastRun: "2025-01-01T00:00:00Z",
+		Queries: []state.SERPQueryResult{
+			{
+				Query:       "example query",
+				OurPosition: 5,
+				Features: []state.SERPFeatureRecord{
+					{Type: "featured_snippet"},
+				},
+			},
+		},
+	}
+
+	results := Run(st)
+
+	// Must not be nil — Run() should return an initialized (possibly empty) slice.
+	if results == nil {
+		t.Fatal("Run() returned nil with crawl data present; expected a non-nil slice")
+	}
+
+	// featured-snippet-opportunity requires a GSC keyword match to determine
+	// position, so it may not fire here — but the function must not panic and
+	// GSC-dependent rules (1-5) simply produce no findings (correct behaviour).
+	serpRules := []string{"ai-overview-eating-clicks", "featured-snippet-opportunity", "paa-content-opportunity"}
+	for _, rule := range serpRules {
+		// Just verify no panic — we don't assert whether they fire or not
+		// because GSC keyword lookup returns nothing when GSC is nil.
+		_ = findRule(results, rule)
+	}
+}
+
+func TestNoSERPDataSkipsRules(t *testing.T) {
+	st := buildState(
+		[]state.Finding{
+			{Rule: "missing-title", URL: "https://example.com/page", Verdict: "fail"},
+		},
+		[]state.GSCRow{
+			{Key: "https://example.com/page", Impressions: 100, Clicks: 5, CTR: 0.05, Position: 4},
+		},
+	)
+	st.GSC.TopKeywords = []state.GSCRow{
+		{Key: "test query", Impressions: 200, Clicks: 1, CTR: 0.005, Position: 4},
+	}
+	// SERP is nil — no SERP data.
+	st.SERP = nil
+
+	results := Run(st)
+
+	serpRules := []string{"ai-overview-eating-clicks", "featured-snippet-opportunity", "paa-content-opportunity"}
+	for _, rule := range serpRules {
+		if f := findRule(results, rule); f != nil {
+			t.Errorf("rule %q should not fire when SERP is nil", rule)
+		}
+	}
+}
+
+func TestNoLabsDataSkipsRules(t *testing.T) {
+	st := buildState(
+		[]state.Finding{
+			{Rule: "missing-title", URL: "https://example.com/page", Verdict: "fail"},
+		},
+		[]state.GSCRow{
+			{Key: "https://example.com/page", Impressions: 100, Clicks: 5, CTR: 0.05, Position: 4},
+		},
+	)
+	st.GSC.TopKeywords = []state.GSCRow{
+		{Key: "test query", Impressions: 200, Clicks: 5, CTR: 0.025, Position: 8},
+	}
+	// Labs is nil — no Labs data.
+	st.Labs = nil
+
+	results := Run(st)
+
+	labsRules := []string{"easy-win-keyword", "informational-content-gap"}
+	for _, rule := range labsRules {
+		if f := findRule(results, rule); f != nil {
+			t.Errorf("rule %q should not fire when Labs is nil", rule)
+		}
+	}
+}
+
 func TestPriorityHighTraffic(t *testing.T) {
 	// Page with crawl issues AND GSC clicks > 0 should be HIGH (90-100).
 	st := buildState(

@@ -77,6 +77,224 @@ func TestAnalyze(t *testing.T) {
 	}
 }
 
+func TestAnalyzeSERPFeatures(t *testing.T) {
+	mockResp := map[string]any{
+		"organic_results": []map[string]any{
+			{"position": 1, "title": "Result 1", "link": "https://example.com", "snippet": "Snippet 1"},
+		},
+		"search_information": map[string]any{
+			"total_results":        "100",
+			"time_taken_displayed": 0.5,
+		},
+		"answer_box": map[string]any{
+			"type":    "organic_result",
+			"title":   "Featured Title",
+			"snippet": "Featured snippet text",
+			"link":    "https://featured.com/page",
+		},
+		"related_questions": []map[string]any{
+			{"question": "What is SEO?", "snippet": "SEO is...", "title": "SEO Guide", "link": "https://seo.com"},
+			{"question": "How does SEO work?", "snippet": "It works by...", "title": "SEO 101", "link": "https://seo101.com"},
+		},
+		"local_results": map[string]any{
+			"places": []map[string]any{
+				{"title": "Local Business", "address": "123 Main St"},
+			},
+		},
+		"knowledge_graph": map[string]any{
+			"title":       "Knowledge Title",
+			"description": "Knowledge description",
+			"source":      "Wikipedia",
+		},
+		"ai_overview":      map[string]any{"text": "AI generated overview"},
+		"top_stories":      []map[string]any{{"title": "Story"}},
+		"inline_videos":    []map[string]any{{"title": "Video"}},
+		"inline_images":    []map[string]any{{"thumbnail": "img.jpg"}},
+		"shopping_results": []map[string]any{{"title": "Product", "price": "$10"}},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(mockResp)
+	}))
+	defer srv.Close()
+
+	a := New("test-key", WithBaseURL(srv.URL))
+	resp, err := a.Analyze(serp.AnalyzeRequest{Query: "test"})
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+
+	// Verify organic results still work.
+	if len(resp.OrganicResults) != 1 {
+		t.Fatalf("expected 1 organic result, got %d", len(resp.OrganicResults))
+	}
+
+	// Verify HasAIOverview.
+	if !resp.HasAIOverview {
+		t.Fatal("expected HasAIOverview to be true")
+	}
+
+	// Verify related questions.
+	if len(resp.RelatedQuestions) != 2 {
+		t.Fatalf("expected 2 related questions, got %d", len(resp.RelatedQuestions))
+	}
+	if resp.RelatedQuestions[0].Question != "What is SEO?" {
+		t.Fatalf("expected first question 'What is SEO?', got %q", resp.RelatedQuestions[0].Question)
+	}
+
+	// Verify features — expect 9 total:
+	// featured_snippet, people_also_ask, local_pack, knowledge_graph, ai_overview,
+	// top_stories, inline_videos, inline_images, inline_shopping
+	expectedFeatures := map[serp.SERPFeatureType]bool{
+		serp.FeatureFeaturedSnippet: true,
+		serp.FeaturePeopleAlsoAsk:   true,
+		serp.FeatureLocalPack:       true,
+		serp.FeatureKnowledgeGraph:  true,
+		serp.FeatureAIOverview:      true,
+		serp.FeatureTopStories:      true,
+		serp.FeatureInlineVideos:    true,
+		serp.FeatureInlineImages:    true,
+		serp.FeatureInlineShopping:  true,
+	}
+	if len(resp.Features) != len(expectedFeatures) {
+		t.Fatalf("expected %d features, got %d: %+v", len(expectedFeatures), len(resp.Features), resp.Features)
+	}
+	for _, f := range resp.Features {
+		if !expectedFeatures[f.Type] {
+			t.Errorf("unexpected feature type: %s", f.Type)
+		}
+		delete(expectedFeatures, f.Type)
+	}
+	if len(expectedFeatures) > 0 {
+		t.Errorf("missing features: %+v", expectedFeatures)
+	}
+
+	// Verify featured snippet details.
+	fs := resp.Features[0]
+	if fs.Type != serp.FeatureFeaturedSnippet {
+		t.Fatalf("expected first feature to be featured_snippet, got %s", fs.Type)
+	}
+	if fs.Title != "Featured Title" {
+		t.Fatalf("expected featured snippet title 'Featured Title', got %q", fs.Title)
+	}
+	if fs.URL != "https://featured.com/page" {
+		t.Fatalf("expected featured snippet URL, got %q", fs.URL)
+	}
+	if fs.Snippet != "Featured snippet text" {
+		t.Fatalf("expected featured snippet text, got %q", fs.Snippet)
+	}
+
+	// Verify knowledge graph details.
+	var kgFeature *serp.SERPFeature
+	for i := range resp.Features {
+		if resp.Features[i].Type == serp.FeatureKnowledgeGraph {
+			kgFeature = &resp.Features[i]
+			break
+		}
+	}
+	if kgFeature == nil {
+		t.Fatal("knowledge_graph feature not found")
+	}
+	if kgFeature.Title != "Knowledge Title" {
+		t.Fatalf("expected KG title 'Knowledge Title', got %q", kgFeature.Title)
+	}
+	if kgFeature.Snippet != "Knowledge description" {
+		t.Fatalf("expected KG snippet 'Knowledge description', got %q", kgFeature.Snippet)
+	}
+}
+
+func TestAnalyzeNoFeatures(t *testing.T) {
+	mockResp := map[string]any{
+		"organic_results": []map[string]any{
+			{"position": 1, "title": "Only Result", "link": "https://example.com", "snippet": "Only snippet"},
+		},
+		"search_information": map[string]any{
+			"total_results": "1", "time_taken_displayed": 0.1,
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(mockResp)
+	}))
+	defer srv.Close()
+
+	a := New("test-key", WithBaseURL(srv.URL))
+	resp, err := a.Analyze(serp.AnalyzeRequest{Query: "plain"})
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(resp.Features) != 0 {
+		t.Fatalf("expected 0 features, got %d", len(resp.Features))
+	}
+	if resp.HasAIOverview {
+		t.Fatal("expected HasAIOverview to be false")
+	}
+	if len(resp.RelatedQuestions) != 0 {
+		t.Fatalf("expected 0 related questions, got %d", len(resp.RelatedQuestions))
+	}
+}
+
+func TestAnalyzeDefaultLocationAndLocale(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if got := q.Get("location"); got != "Perth,Western Australia,Australia" {
+			t.Errorf("expected default location 'Perth,Western Australia,Australia', got %q", got)
+		}
+		if got := q.Get("hl"); got != "en" {
+			t.Errorf("expected default hl 'en', got %q", got)
+		}
+		if got := q.Get("gl"); got != "au" {
+			t.Errorf("expected gl 'au', got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"organic_results":    []map[string]any{},
+			"search_information": map[string]any{"total_results": "0", "time_taken_displayed": 0.1},
+		})
+	}))
+	defer srv.Close()
+
+	a := New("test-key", WithBaseURL(srv.URL))
+	// No Location or Language set — should use defaults.
+	_, err := a.Analyze(serp.AnalyzeRequest{Query: "default locale test"})
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+}
+
+func TestAnalyzeCustomLocationOverridesDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if got := q.Get("location"); got != "Sydney,New South Wales,Australia" {
+			t.Errorf("expected custom location, got %q", got)
+		}
+		if got := q.Get("hl"); got != "en-AU" {
+			t.Errorf("expected custom hl 'en-AU', got %q", got)
+		}
+		if got := q.Get("gl"); got != "au" {
+			t.Errorf("expected gl 'au', got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"organic_results":    []map[string]any{},
+			"search_information": map[string]any{"total_results": "0", "time_taken_displayed": 0.1},
+		})
+	}))
+	defer srv.Close()
+
+	a := New("test-key", WithBaseURL(srv.URL))
+	_, err := a.Analyze(serp.AnalyzeRequest{
+		Query:    "custom locale test",
+		Location: "Sydney,New South Wales,Australia",
+		Language: "en-AU",
+	})
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+}
+
 func TestAnalyzeServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

@@ -25,6 +25,9 @@ type MergedFinding struct {
 	PriorityScore int         `json:"priority_score"` // numeric for sorting, higher = more urgent
 }
 
+// GSCRow is a local alias for state.GSCRow used in keyword indexes.
+type GSCRow = state.GSCRow
+
 // GSCMetrics holds search performance numbers from Google Search Console.
 type GSCMetrics struct {
 	Impressions float64 `json:"impressions"`
@@ -33,11 +36,11 @@ type GSCMetrics struct {
 	Position    float64 `json:"position"`
 }
 
-// Run compares crawl findings with GSC data in the given state and returns
-// cross-source findings. Both crawl and GSC data must be present; if either
-// is missing the function returns nil.
+// Run compares crawl findings with GSC, SERP, and Labs data in the given state
+// and returns cross-source findings. Only crawl data is required; GSC, SERP,
+// and Labs data are optional — rules that depend on absent data simply won't fire.
 func Run(st *state.State) []MergedFinding {
-	if st.LastCrawl == "" || st.GSC == nil || st.GSC.LastPull == "" {
+	if st.LastCrawl == "" {
 		return nil
 	}
 
@@ -57,18 +60,29 @@ func Run(st *state.State) []MergedFinding {
 		}
 	}
 
-	// Index GSC top-pages by normalized URL.
-	gscByURL := make(map[string]*GSCMetrics, len(st.GSC.TopPages))
-	for _, row := range st.GSC.TopPages {
-		norm := urlnorm.Normalize(row.Key)
-		if norm == "" {
-			continue
+	// Index GSC top-keywords by query string (lowercased).
+	gscByKeyword := make(map[string]*GSCRow)
+	if st.GSC != nil {
+		for i := range st.GSC.TopKeywords {
+			row := &st.GSC.TopKeywords[i]
+			gscByKeyword[strings.ToLower(row.Key)] = row
 		}
-		gscByURL[norm] = &GSCMetrics{
-			Impressions: row.Impressions,
-			Clicks:      row.Clicks,
-			CTR:         row.CTR,
-			Position:    row.Position,
+	}
+
+	// Index GSC top-pages by normalized URL.
+	gscByURL := make(map[string]*GSCMetrics)
+	if st.GSC != nil {
+		for _, row := range st.GSC.TopPages {
+			norm := urlnorm.Normalize(row.Key)
+			if norm == "" {
+				continue
+			}
+			gscByURL[norm] = &GSCMetrics{
+				Impressions: row.Impressions,
+				Clicks:      row.Clicks,
+				CTR:         row.CTR,
+				Position:    row.Position,
+			}
 		}
 	}
 
@@ -239,6 +253,242 @@ func Run(st *state.State) []MergedFinding {
 		}
 	}
 
+	// --- SERP-aware rules (only fire when SERP data is present) ---
+	if st.SERP != nil && len(st.SERP.Queries) > 0 {
+
+		// --- Rule 7: ai-overview-eating-clicks ---
+		for _, sq := range st.SERP.Queries {
+			if !sq.HasAIOverview {
+				continue
+			}
+			kw, ok := gscByKeyword[strings.ToLower(sq.Query)]
+			if !ok || kw.Impressions <= 10 || kw.CTR >= 0.03 {
+				continue
+			}
+			results = append(results, MergedFinding{
+				Rule:    "ai-overview-eating-clicks",
+				URL:     kw.Key,
+				Sources: []string{"serp", "gsc"},
+				GSCData: &GSCMetrics{
+					Impressions: kw.Impressions,
+					Clicks:      kw.Clicks,
+					CTR:         kw.CTR,
+					Position:    kw.Position,
+				},
+				Verdict: "medium",
+				Why:     fmt.Sprintf("Query %q has an AI Overview and your CTR is only %.1f%% — the AI answer is likely absorbing clicks", sq.Query, kw.CTR*100),
+				Fix:     "Optimize content to be cited IN the AI Overview rather than competing below it. Add structured data, direct answers in the first paragraph, and authoritative sourcing.",
+			})
+		}
+
+		// --- Rule 8: featured-snippet-opportunity ---
+		for _, sq := range st.SERP.Queries {
+			hasSnippet := false
+			for _, feat := range sq.Features {
+				if feat.Type == "featured_snippet" {
+					hasSnippet = true
+					break
+				}
+			}
+			if !hasSnippet {
+				continue
+			}
+			// Determine our position from SERP data or GSC.
+			position := sq.OurPosition
+			if position == -1 {
+				// Not ranking — check GSC for position
+				if kw, ok := gscByKeyword[strings.ToLower(sq.Query)]; ok {
+					position = int(kw.Position)
+				}
+			}
+			if position == -1 || position < 2 || position > 10 {
+				continue
+			}
+			targetURL := sq.Query
+			if kw, ok := gscByKeyword[strings.ToLower(sq.Query)]; ok {
+				targetURL = kw.Key
+			}
+			results = append(results, MergedFinding{
+				Rule:    "featured-snippet-opportunity",
+				URL:     targetURL,
+				Sources: []string{"serp", "gsc"},
+				Verdict: "medium",
+				Why:     fmt.Sprintf("Query %q has a Featured Snippet and you rank at position %d — you can potentially capture position 0", sq.Query, position),
+				Fix:     "Add a direct, concise answer (40-60 words) near the top of the page, use the question as an H2, and format with lists or tables if appropriate.",
+			})
+		}
+
+		// Pre-index pages with H2s matching PAA questions.
+		h2MatchPages := make(map[string]bool)
+		for _, f := range st.Findings {
+			if f.Rule == "h2-matches-paa" {
+				norm := urlnorm.Normalize(f.URL)
+				if norm != "" {
+					h2MatchPages[norm] = true
+				}
+			}
+		}
+
+		// --- Rule 9: paa-content-opportunity ---
+		for _, sq := range st.SERP.Queries {
+			if len(sq.RelatedQuestions) < 2 {
+				continue
+			}
+			kw, hasKW := gscByKeyword[strings.ToLower(sq.Query)]
+			if !hasKW {
+				continue
+			}
+
+			// Use the keyword query as the target identifier.
+			// In GSC, top-keywords rows have Key = query string.
+			pageURL := kw.Key
+
+			if h2MatchPages[pageURL] {
+				continue
+			}
+
+			questions := sq.RelatedQuestions
+			display := questions
+			if len(display) > 3 {
+				display = display[:3]
+			}
+			results = append(results, MergedFinding{
+				Rule:    "paa-content-opportunity",
+				URL:     pageURL,
+				Sources: []string{"serp", "crawl"},
+				Verdict: "low",
+				Why:     fmt.Sprintf("Query %q has %d People Also Ask questions that your page doesn't address", sq.Query, len(questions)),
+				Fix:     "Add FAQ sections or H2 headings that directly answer these questions: " + strings.Join(display, "; "),
+			})
+		}
+	}
+
+	// --- Labs-aware rules (only fire when Labs data is present) ---
+	if st.Labs != nil && len(st.Labs.Keywords) > 0 {
+
+		// Index Labs keywords by lowercased keyword string.
+		labsByKeyword := make(map[string]*state.LabsKeyword, len(st.Labs.Keywords))
+		for i := range st.Labs.Keywords {
+			lk := &st.Labs.Keywords[i]
+			labsByKeyword[strings.ToLower(lk.Keyword)] = lk
+		}
+
+		// Build a set of GSC keywords (lowercased) for gap detection.
+		gscKeywordSet := make(map[string]bool)
+		if st.GSC != nil {
+			for _, row := range st.GSC.TopKeywords {
+				gscKeywordSet[strings.ToLower(row.Key)] = true
+			}
+		}
+
+		// --- Rule 10: easy-win-keyword ---
+		var gscTopKeywords []state.GSCRow
+		if st.GSC != nil {
+			gscTopKeywords = st.GSC.TopKeywords
+		}
+		for _, row := range gscTopKeywords {
+			lk, ok := labsByKeyword[strings.ToLower(row.Key)]
+			if !ok {
+				continue
+			}
+			if lk.Difficulty < 30 && lk.SearchVolume > 30 && row.Position > 5 {
+				targetURL := row.Key
+				results = append(results, MergedFinding{
+					Rule:    "easy-win-keyword",
+					URL:     targetURL,
+					Sources: []string{"labs", "gsc"},
+					GSCData: &GSCMetrics{
+						Impressions: row.Impressions,
+						Clicks:      row.Clicks,
+						CTR:         row.CTR,
+						Position:    row.Position,
+					},
+					Verdict: "high",
+					Why:     fmt.Sprintf("Keyword %q has difficulty %.0f/100, volume %d, and you rank at position %.1f — this is very winnable", row.Key, lk.Difficulty, lk.SearchVolume, row.Position),
+					Fix:     "Expand and improve the content targeting this keyword. Add more depth, answer related questions, improve internal linking to this page.",
+				})
+			}
+		}
+
+		// --- Rule 11: informational-content-gap ---
+		// Collect candidates then keep only top 10 by search volume.
+		type gapCandidate struct {
+			keyword string
+			volume  int
+			diff    float64
+		}
+		var gapCandidates []gapCandidate
+		for _, lk := range st.Labs.Keywords {
+			if strings.ToLower(lk.Intent) != "informational" {
+				continue
+			}
+			if gscKeywordSet[strings.ToLower(lk.Keyword)] {
+				continue
+			}
+			if lk.SearchVolume > 50 && lk.Difficulty < 40 {
+				gapCandidates = append(gapCandidates, gapCandidate{
+					keyword: lk.Keyword,
+					volume:  lk.SearchVolume,
+					diff:    lk.Difficulty,
+				})
+			}
+		}
+		// Sort by search volume descending and cap at 10.
+		sort.SliceStable(gapCandidates, func(i, j int) bool {
+			return gapCandidates[i].volume > gapCandidates[j].volume
+		})
+		if len(gapCandidates) > 10 {
+			gapCandidates = gapCandidates[:10]
+		}
+		for _, gc := range gapCandidates {
+			results = append(results, MergedFinding{
+				Rule:    "informational-content-gap",
+				URL:     gc.keyword,
+				Sources: []string{"labs"},
+				Verdict: "medium",
+				Why:     fmt.Sprintf("Keyword %q (volume %d, difficulty %.0f) has informational intent and you're not ranking for it", gc.keyword, gc.volume, gc.diff),
+				Fix:     "Create a new page or blog post targeting this keyword. Focus on answering the query comprehensively.",
+			})
+		}
+	}
+
+	// --- Backlink-aware rules (only fire when backlink data is present) ---
+
+	// --- Rule 12: weak-backlink-profile ---
+	if st.Backlinks != nil && st.Labs != nil && len(st.Labs.Competitors) > 0 {
+		referringDomains := st.Backlinks.TotalReferringDomains
+		// Check if the site has a weak profile relative to keyword difficulty.
+		hasHardKeywords := false
+		for _, lk := range st.Labs.Keywords {
+			if lk.Difficulty > 20 {
+				hasHardKeywords = true
+				break
+			}
+		}
+		if referringDomains < 10 && hasHardKeywords {
+			results = append(results, MergedFinding{
+				Rule:    "weak-backlink-profile",
+				URL:     st.Backlinks.Target,
+				Sources: []string{"backlinks", "labs"},
+				Verdict: "high",
+				Why:     fmt.Sprintf("Your site has %d referring domains — most keywords you're targeting require significantly more authority to rank", referringDomains),
+				Fix:     "Start a link building campaign. Target directories, guest posts, and industry sites. Focus on getting dofollow links from domains with rank > 30.",
+			})
+		}
+	}
+
+	// --- Rule 13: broken-backlinks-found ---
+	if st.Backlinks != nil && st.Backlinks.BrokenBacklinks > 0 {
+		results = append(results, MergedFinding{
+			Rule:    "broken-backlinks-found",
+			URL:     st.Backlinks.Target,
+			Sources: []string{"backlinks"},
+			Verdict: "medium",
+			Why:     fmt.Sprintf("You have %d broken backlinks — these are wasted link equity from other sites pointing to pages that no longer exist", st.Backlinks.BrokenBacklinks),
+			Fix:     "Set up 301 redirects from the broken URLs to the most relevant existing pages to recapture this link equity.",
+		})
+	}
+
 	// Assign priority scores to all findings.
 	for i := range results {
 		results[i].PriorityScore, results[i].Priority = scoreFinding(&results[i])
@@ -345,6 +595,42 @@ func scoreFinding(f *MergedFinding) (int, string) {
 			score = 50
 		}
 		return score, "medium"
+
+	// SERP-aware rules score in the 40-70 range (medium priority).
+	case f.Rule == "ai-overview-eating-clicks":
+		score := 55
+		if hasGSC && f.GSCData.Impressions > 100 {
+			score = 70
+		} else if hasGSC && f.GSCData.Impressions > 50 {
+			score = 60
+		}
+		return score, "medium"
+
+	case f.Rule == "featured-snippet-opportunity":
+		return 60, "medium"
+
+	case f.Rule == "paa-content-opportunity":
+		return 40, "low"
+
+	// Labs-aware rules.
+	case f.Rule == "easy-win-keyword":
+		score := 70
+		if hasGSC && f.GSCData.Position > 10 {
+			score = 80
+		} else if hasGSC && f.GSCData.Position > 7 {
+			score = 75
+		}
+		return score, "high"
+
+	case f.Rule == "informational-content-gap":
+		return 50, "medium"
+
+	// Backlink-aware rules.
+	case f.Rule == "weak-backlink-profile":
+		return 85, "high"
+
+	case f.Rule == "broken-backlinks-found":
+		return 65, "medium"
 	}
 
 	// Default: crawl issues with some GSC data that doesn't match higher tiers.

@@ -19,9 +19,9 @@ const (
 	ErrEstimateFailed    = "ESTIMATE_FAILED"
 	ErrSERPFailed        = "SERP_FAILED"
 	ErrGSCFailed         = "GSC_FAILED"
-	ErrDataForSEOFailed  = "DATAFORSEO_FAILED"
 	ErrAEOFailed         = "AEO_FAILED"
 	ErrGEOFailed         = "GEO_FAILED"
 	ErrLabsFailed        = "LABS_FAILED"
 	ErrPSIFailed         = "PSI_FAILED"
+	ErrBacklinksFailed   = "BACKLINKS_FAILED"
 )

@@ -65,15 +65,15 @@ func NewAnalyzeCmd(format *string, verbose *bool) *cobra.Command {
 				return output.PrintCodedError("STATE_SAVE_FAILED", "failed to save state", err, nil, output.Format(*format))
 			}
 
-			// Build top 3 summary.
+			// Build top 5 summary.
 			type findingSummary struct {
 				Rule     string `json:"rule"`
 				URL      string `json:"url"`
 				Priority string `json:"priority"`
 				Why      string `json:"why"`
 			}
-			top := make([]findingSummary, 0, 3)
-			for i := 0; i < len(findings) && i < 3; i++ {
+			top := make([]findingSummary, 0, 5)
+			for i := 0; i < len(findings) && i < 5; i++ {
 				top = append(top, findingSummary{
 					Rule:     findings[i].Rule,
 					URL:      findings[i].URL,
@@ -83,14 +83,29 @@ func NewAnalyzeCmd(format *string, verbose *bool) *cobra.Command {
 			}
 
 			gscAvailable := st.GSC != nil && st.GSC.LastPull != ""
+			serpAvailable := st.SERP != nil && st.SERP.LastRun != ""
+			labsAvailable := st.Labs != nil && st.Labs.LastRun != ""
+			backlinksAvailable := st.Backlinks != nil && st.Backlinks.LastRun != ""
 
 			data := map[string]any{
 				"merged_findings_count": len(findings),
 				"top_findings":          top,
 				"gsc_available":         gscAvailable,
+				"serp_available":        serpAvailable,
+				"labs_available":        labsAvailable,
+				"backlinks_available":   backlinksAvailable,
 			}
 			if !gscAvailable {
 				data["gsc_note"] = "GSC data not available — connect GSC for deeper analysis"
+			}
+			if !serpAvailable {
+				data["serp_note"] = "SERP data not available — run 'sageo serp analyze' on key queries for SERP feature detection"
+			}
+			if !labsAvailable {
+				data["labs_note"] = "Labs data not available — run 'sageo labs ranked-keywords' for keyword difficulty scoring"
+			}
+			if !backlinksAvailable {
+				data["backlinks_note"] = "Backlinks data not available — run 'sageo backlinks summary' for link profile analysis"
 			}
 
 			metadata := map[string]any{

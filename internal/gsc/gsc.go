@@ -35,14 +35,6 @@ func NewClient(accessToken string) *Client {
 	}
 }
 
-// NewClientWithHTTP creates a GSC client with a custom HTTP client (for testing).
-func NewClientWithHTTP(accessToken string, httpClient HTTPClient) *Client {
-	return &Client{
-		httpClient:  httpClient,
-		accessToken: accessToken,
-	}
-}
-
 // Site represents a GSC property.
 type Site struct {
 	SiteURL         string `json:"siteUrl"`

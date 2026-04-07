@@ -14,6 +14,7 @@ import (
 	"github.com/jakeschepis/sageo-cli/internal/serp"
 	serpdforseo "github.com/jakeschepis/sageo-cli/internal/serp/dataforseo"
 	"github.com/jakeschepis/sageo-cli/internal/serp/serpapi"
+	"github.com/jakeschepis/sageo-cli/internal/state"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
 )
@@ -132,6 +133,23 @@ Optionally enrich with live SERP data for validation (paid, supports --dry-run).
 			mergeInput := opportunities.MergeInput{
 				GSCSeeds: seeds,
 			}
+
+			// Load Labs keyword data from state if available
+			var labsMap map[string]opportunities.LabsKeywordInfo
+			if state.Exists(".") {
+				if st, loadErr := state.Load("."); loadErr == nil && st.Labs != nil && len(st.Labs.Keywords) > 0 {
+					labsMap = make(map[string]opportunities.LabsKeywordInfo, len(st.Labs.Keywords))
+					for _, kw := range st.Labs.Keywords {
+						labsMap[kw.Keyword] = opportunities.LabsKeywordInfo{
+							SearchVolume: kw.SearchVolume,
+							Difficulty:   kw.Difficulty,
+							Intent:       kw.Intent,
+						}
+					}
+					mergeInput.LabsKeywords = labsMap
+				}
+			}
+			meta["labs_enriched"] = len(labsMap) > 0
 
 			// Optional SERP enrichment
 			if withSERP && len(seeds) > 0 {

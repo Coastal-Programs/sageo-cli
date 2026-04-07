@@ -207,11 +207,14 @@ func (c *crawler) Run(ctx context.Context, req Request) (Result, error) {
 					mu.Lock()
 					if !visited[normalized] && len(result.Pages) < maxPages {
 						visited[normalized] = true
-						active++
 						mu.Unlock()
 						select {
 						case queue <- crawlItem{url: normalized, depth: item.depth + 1}:
+							mu.Lock()
+							active++
+							mu.Unlock()
 						default:
+							// Queue full — drop item, don't increment active
 						}
 					} else {
 						mu.Unlock()
@@ -248,7 +251,7 @@ func normalizeURL(u *url.URL) string {
 		path = "/"
 	}
 	return u.Scheme + "://" + u.Host + path
-	// Note: preserves query params in path; for crawling we keep it simple
+	// Note: query params are intentionally stripped for crawl deduplication
 }
 
 func isSameDomain(link, base *url.URL) bool {

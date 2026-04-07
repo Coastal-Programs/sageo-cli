@@ -3,6 +3,7 @@ module github.com/jakeschepis/sageo-cli
 go 1.26.1
 
 require (
+	charm.land/bubbles/v2 v2.0.0
 	charm.land/huh/v2 v2.0.3
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/spf13/cobra v1.10.2
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	charm.land/bubbles/v2 v2.0.0 // indirect
 	charm.land/bubbletea/v2 v2.0.2 // indirect
 	charm.land/lipgloss/v2 v2.0.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
@@ -25,25 +26,74 @@ const (
 	loginActionFinish     loginAction = "finish"
 )
 
+// Adaptive colors that work on both light and dark terminals.
 var (
-	loginHeaderStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#1D4ED8")).Bold(true)
-	loginSubtleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#2563EB"))
-	loginSuccessStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#0F766E")).Bold(true)
-	loginInfoStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#1E40AF"))
-	loginErrorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#B91C1C")).Bold(true)
-	loginConfirmedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#16A34A")).Bold(true)
-	loginNotConfigStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	loginPrimaryColor = lipgloss.AdaptiveColor{Light: "#2563eb", Dark: "#60a5fa"}
+	loginTextColor    = lipgloss.AdaptiveColor{Light: "#1e293b", Dark: "#e2e8f0"}
+	loginDimColor     = lipgloss.AdaptiveColor{Light: "#64748b", Dark: "#94a3b8"}
+	loginSuccessColor = lipgloss.AdaptiveColor{Light: "#059669", Dark: "#34d399"}
+	loginErrorColor   = lipgloss.AdaptiveColor{Light: "#dc2626", Dark: "#f87171"}
 )
+
+var (
+	loginPrimaryStyle   = lipgloss.NewStyle().Foreground(loginPrimaryColor).Bold(true)
+	loginTextStyle      = lipgloss.NewStyle().Foreground(loginTextColor).Bold(true)
+	loginDimStyle       = lipgloss.NewStyle().Foreground(loginDimColor)
+	loginSuccessStyle   = lipgloss.NewStyle().Foreground(loginSuccessColor).Bold(true)
+	loginInfoStyle      = lipgloss.NewStyle().Foreground(loginPrimaryColor)
+	loginErrorStyle     = lipgloss.NewStyle().Foreground(loginErrorColor).Bold(true)
+	loginConfirmedStyle = lipgloss.NewStyle().Foreground(loginSuccessColor).Bold(true)
+	loginNotConfigStyle = lipgloss.NewStyle().Foreground(loginDimColor)
+)
+
+// logoLines spells "SAGEO" in a clean thin-line style.
+var logoLines = []string{
+	"╔═╗ ╔═╗ ╔═╗ ╔═╗ ╔═╗",
+	"╚═╗ ╠═╣ ║ ╦ ╠═  ║ ║",
+	"╚═╝ ╩ ╩ ╚═╝ ╚═╝ ╚═╝",
+}
+
+// logoGradient applies a blue gradient across a logo line.
+func logoGradient(line string) string {
+	gradientDark := []string{
+		"#93c5fd", "#86bffc", "#79b8fb", "#6cb2fa",
+		"#60a5fa", "#56a0f9", "#4b96f8", "#418cf7",
+		"#3b82f6", "#3179f4", "#2970f2", "#2563eb",
+	}
+	gradientLight := []string{
+		"#2563eb", "#2970f2", "#3179f4", "#3b82f6",
+		"#418cf7", "#4b96f8", "#56a0f9", "#60a5fa",
+		"#6cb2fa", "#79b8fb", "#86bffc", "#93c5fd",
+	}
+	isDark := lipgloss.HasDarkBackground()
+	colors := gradientDark
+	if !isDark {
+		colors = gradientLight
+	}
+	var b strings.Builder
+	ci := 0
+	for _, ch := range line {
+		if ch == ' ' {
+			b.WriteRune(ch)
+		} else {
+			c := colors[ci%len(colors)]
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Render(string(ch)))
+			ci++
+		}
+	}
+	return b.String()
+}
 
 var errBackToMenu = errors.New("back to menu")
 
-const (
-	selectControlsHint = "Controls: ↑/↓ move • Enter select • Esc back"
-	inputControlsHint  = "Controls: Enter continue • Esc back"
-)
+const controlsHint = "↑↓ navigate · Enter next · Esc back"
+
+// loginVersion is set by NewLoginCmd so the header can display it.
+var loginVersion string
 
 // NewLoginCmd returns the top-level interactive login command.
-func NewLoginCmd(format *string, verbose *bool) *cobra.Command {
+func NewLoginCmd(version string, format *string, verbose *bool) *cobra.Command {
+	loginVersion = version
 	return &cobra.Command{
 		Use:   "login",
 		Short: "Interactive setup for service credentials",
@@ -78,7 +128,7 @@ func runLogin(format *string, verbose *bool) error {
 					fmt.Printf("%s\n\n", loginInfoStyle.Render("• Back to service menu"))
 					continue
 				}
-				fmt.Printf("%s\n\n", loginErrorStyle.Render("✗ Google Search Console: "+err.Error()))
+				fmt.Printf("%s\n\n", loginErrorStyle.Render("✗ Google OAuth: "+err.Error()))
 			}
 		case loginActionDataForSEO:
 			if err := runDataForSEOLoginForm(); err != nil {
@@ -102,7 +152,7 @@ func runLogin(format *string, verbose *bool) error {
 					fmt.Printf("%s\n\n", loginInfoStyle.Render("• Back to service menu"))
 					continue
 				}
-				fmt.Printf("%s\n\n", loginErrorStyle.Render("✗ Google Search Console: "+err.Error()))
+				fmt.Printf("%s\n\n", loginErrorStyle.Render("✗ Google OAuth: "+err.Error()))
 			}
 			if err := runDataForSEOLoginForm(); err != nil {
 				if errors.Is(err, errBackToMenu) {
@@ -128,8 +178,16 @@ func runLogin(format *string, verbose *bool) error {
 
 func printLoginHeader() {
 	fmt.Println()
-	fmt.Println(loginHeaderStyle.Render("Sageo CLI by Coastal Programs"))
-	fmt.Println(loginSubtleStyle.Render("Credential setup"))
+	for _, line := range logoLines {
+		fmt.Println("  " + logoGradient(line))
+	}
+	ver := loginVersion
+	if ver == "" {
+		ver = "dev"
+	}
+	fmt.Println()
+	fmt.Println("  " + loginDimStyle.Render(ver+" · By ") + loginTextStyle.Render("Jake Schepis"))
+	fmt.Println("  " + loginPrimaryStyle.Render("Login") + loginDimStyle.Render(" — Select a service"))
 	fmt.Println()
 }
 
@@ -141,36 +199,35 @@ func selectLoginAction() (loginAction, error) {
 		return "", fmt.Errorf("failed to load config: %w", err)
 	}
 
-	gscLabel := "Google Search Console (OAuth)"
+	gscLabel := "Google OAuth — GSC, PageSpeed Insights"
 	if isGSCConfigured(cfg) {
-		gscLabel += " " + loginConfirmedStyle.Render("✔ confirmed")
+		gscLabel += " " + loginConfirmedStyle.Render("✓")
 	}
 
-	dataForSEOLabel := "DataForSEO (SERP + AEO/GEO)"
+	dataForSEOLabel := "DataForSEO — SERP, AEO/GEO, Labs"
 	if isDataForSEOConfigured(cfg) {
-		dataForSEOLabel += " " + loginConfirmedStyle.Render("✔ confirmed")
+		dataForSEOLabel += " " + loginConfirmedStyle.Render("✓")
 	}
 
-	serpAPILabel := "SerpAPI (API key)"
+	serpAPILabel := "SerpAPI — Search results"
 	if isSerpAPIConfigured(cfg) {
-		serpAPILabel += " " + loginConfirmedStyle.Render("✔ confirmed")
+		serpAPILabel += " " + loginConfirmedStyle.Render("✓")
 	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[loginAction]().
-				Title("Select a setup action").
-				Description(selectControlsHint).
 				Options(
 					huh.NewOption(gscLabel, loginActionGSC),
 					huh.NewOption(dataForSEOLabel, loginActionDataForSEO),
 					huh.NewOption(serpAPILabel, loginActionSerpAPI),
-					huh.NewOption("Set up all services", loginActionAll),
+					huh.NewOption("All services — Set up everything", loginActionAll),
 					huh.NewOption("Finish", loginActionFinish),
 				).
 				Value(&choice),
+			huh.NewNote().Description(controlsHint),
 		),
-	).WithTheme(loginTheme())
+	).WithKeyMap(loginKeyMap()).WithTheme(loginTheme())
 
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
@@ -190,17 +247,16 @@ func runGSCLoginForm(format *string, verbose *bool) error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("GSC Client ID").
-				Description(inputControlsHint).
 				Value(&clientID).
 				Validate(validateRequired("client ID")),
 			huh.NewInput().
 				Title("GSC Client Secret").
-				Description(inputControlsHint).
 				EchoMode(huh.EchoModePassword).
 				Value(&clientSecret).
 				Validate(validateRequired("client secret")),
+			huh.NewNote().Description(controlsHint),
 		),
-	).WithTheme(loginTheme())
+	).WithKeyMap(loginKeyMap()).WithTheme(loginTheme())
 
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
@@ -229,7 +285,7 @@ func runGSCLoginForm(format *string, verbose *bool) error {
 		return err
 	}
 
-	fmt.Println(loginSuccessStyle.Render("✓ Google Search Console authenticated"))
+	fmt.Println(loginSuccessStyle.Render("✓ Google OAuth authenticated (GSC + PSI)"))
 	fmt.Println()
 	return nil
 }
@@ -242,17 +298,16 @@ func runDataForSEOLoginForm() error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("DataForSEO Login (email)").
-				Description(inputControlsHint).
 				Value(&login).
 				Validate(validateRequired("login")),
 			huh.NewInput().
 				Title("DataForSEO Password").
-				Description(inputControlsHint).
 				EchoMode(huh.EchoModePassword).
 				Value(&password).
 				Validate(validateRequired("password")),
+			huh.NewNote().Description(controlsHint),
 		),
-	).WithTheme(loginTheme())
+	).WithKeyMap(loginKeyMap()).WithTheme(loginTheme())
 
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
@@ -304,12 +359,12 @@ func runSerpAPILoginForm() error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("SerpAPI Key").
-				Description(inputControlsHint).
 				EchoMode(huh.EchoModePassword).
 				Value(&apiKey).
 				Validate(validateRequired("API key")),
+			huh.NewNote().Description(controlsHint),
 		),
-	).WithTheme(loginTheme())
+	).WithKeyMap(loginKeyMap()).WithTheme(loginTheme())
 
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
@@ -355,7 +410,7 @@ func printLoginSummary() {
 	}
 
 	fmt.Println(loginSuccessStyle.Render("✓ Setup complete"))
-	fmt.Println(loginInfoStyle.Render("• Configured services:"))
+	fmt.Println()
 
 	for _, line := range buildLoginSummaryLines(cfg) {
 		fmt.Println(line)
@@ -366,7 +421,7 @@ func printLoginSummary() {
 
 func buildLoginSummaryLines(cfg *config.Config) []string {
 	lines := []string{
-		summaryLine("Google Search Console", isGSCConfigured(cfg), redactValue(cfg.GSCClientID)),
+		summaryLine("Google OAuth (GSC | PSI)", isGSCConfigured(cfg), redactValue(cfg.GSCClientID)),
 		summaryLine("DataForSEO", isDataForSEOConfigured(cfg), cfg.DataForSEOLogin),
 		summaryLine("SerpAPI", isSerpAPIConfigured(cfg), redactValue(cfg.SERPAPIKey)),
 	}
@@ -379,21 +434,14 @@ func buildLoginSummaryLines(cfg *config.Config) []string {
 }
 
 func summaryLine(name string, configured bool, value string) string {
-	status := serviceSummaryStatus(configured, value)
 	if configured {
-		return fmt.Sprintf("  %s %s: %s", loginConfirmedStyle.Render("✔"), name, loginConfirmedStyle.Render(status))
+		detail := ""
+		if v := strings.TrimSpace(value); v != "" {
+			detail = loginDimStyle.Render(" (" + v + ")")
+		}
+		return "  " + loginConfirmedStyle.Render("✓") + " " + loginTextStyle.Render(name) + detail
 	}
-	return fmt.Sprintf("  • %s: %s", name, loginNotConfigStyle.Render(status))
-}
-
-func serviceSummaryStatus(configured bool, value string) string {
-	if !configured {
-		return "not configured"
-	}
-	if strings.TrimSpace(value) == "" {
-		return "confirmed"
-	}
-	return "confirmed (" + strings.TrimSpace(value) + ")"
+	return "  " + loginNotConfigStyle.Render("· "+name+" — not configured")
 }
 
 func validateRequired(name string) func(string) error {
@@ -417,22 +465,43 @@ func isGSCConfigured(cfg *config.Config) bool {
 	return strings.TrimSpace(cfg.GSCClientID) != "" && strings.TrimSpace(cfg.GSCClientSecret) != ""
 }
 
+// loginKeyMap returns a huh keymap with Esc bound to quit/back and
+// up/down arrows for navigating between input fields.
+func loginKeyMap() *huh.KeyMap {
+	km := huh.NewDefaultKeyMap()
+	km.Quit = key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("esc", "back"))
+	km.Input.Prev = key.NewBinding(key.WithKeys("shift+tab", "up"), key.WithHelp("↑", "prev"))
+	km.Input.Next = key.NewBinding(key.WithKeys("enter", "tab", "down"), key.WithHelp("↓/enter", "next"))
+	return km
+}
+
 func loginTheme() huh.Theme {
 	return huh.ThemeFunc(func(isDark bool) *huh.Styles {
 		styles := huh.ThemeCharm(isDark)
 
-		styles.Focused.Title = styles.Focused.Title.Foreground(lipgloss.Color("#1D4ED8")).Bold(true)
-		styles.Focused.Description = styles.Focused.Description.Foreground(lipgloss.Color("#2563EB"))
-		styles.Focused.SelectSelector = styles.Focused.SelectSelector.Foreground(lipgloss.Color("#2563EB")).Bold(true)
-		styles.Focused.Option = styles.Focused.Option.Foreground(lipgloss.Color("#0F172A"))
-		styles.Focused.SelectedOption = styles.Focused.SelectedOption.Foreground(lipgloss.Color("#1D4ED8")).Bold(true)
-		styles.Focused.TextInput.Cursor = styles.Focused.TextInput.Cursor.Foreground(lipgloss.Color("#2563EB"))
-		styles.Focused.NextIndicator = styles.Focused.NextIndicator.Foreground(lipgloss.Color("#1D4ED8"))
-		styles.Focused.PrevIndicator = styles.Focused.PrevIndicator.Foreground(lipgloss.Color("#1D4ED8"))
-		styles.Focused.FocusedButton = styles.Focused.FocusedButton.Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#1D4ED8")).Bold(true)
-		styles.Focused.BlurredButton = styles.Focused.BlurredButton.Foreground(lipgloss.Color("#1E3A8A"))
-		styles.Focused.ErrorIndicator = styles.Focused.ErrorIndicator.Foreground(lipgloss.Color("#B91C1C")).Bold(true)
-		styles.Focused.ErrorMessage = styles.Focused.ErrorMessage.Foreground(lipgloss.Color("#B91C1C"))
+		primary := "#60a5fa"
+		dim := "#94a3b8"
+		text := "#e2e8f0"
+		errColor := "#f87171"
+		if !isDark {
+			primary = "#2563eb"
+			dim = "#64748b"
+			text = "#1e293b"
+			errColor = "#dc2626"
+		}
+
+		styles.Focused.Title = styles.Focused.Title.Foreground(lipgloss.Color(primary)).Bold(true)
+		styles.Focused.Description = styles.Focused.Description.Foreground(lipgloss.Color(dim))
+		styles.Focused.SelectSelector = styles.Focused.SelectSelector.Foreground(lipgloss.Color(primary)).Bold(true)
+		styles.Focused.Option = styles.Focused.Option.Foreground(lipgloss.Color(text))
+		styles.Focused.SelectedOption = styles.Focused.SelectedOption.Foreground(lipgloss.Color(primary)).Bold(true)
+		styles.Focused.TextInput.Cursor = styles.Focused.TextInput.Cursor.Foreground(lipgloss.Color(primary))
+		styles.Focused.NextIndicator = styles.Focused.NextIndicator.Foreground(lipgloss.Color(primary))
+		styles.Focused.PrevIndicator = styles.Focused.PrevIndicator.Foreground(lipgloss.Color(primary))
+		styles.Focused.FocusedButton = styles.Focused.FocusedButton.Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color(primary)).Bold(true)
+		styles.Focused.BlurredButton = styles.Focused.BlurredButton.Foreground(lipgloss.Color(dim))
+		styles.Focused.ErrorIndicator = styles.Focused.ErrorIndicator.Foreground(lipgloss.Color(errColor)).Bold(true)
+		styles.Focused.ErrorMessage = styles.Focused.ErrorMessage.Foreground(lipgloss.Color(errColor))
 
 		return styles
 	})

@@ -1,6 +1,8 @@
 package opportunities
 
 import (
+	"fmt"
+
 	"github.com/jakeschepis/sageo-cli/internal/gsc"
 	"github.com/jakeschepis/sageo-cli/internal/serp"
 )
@@ -26,10 +28,18 @@ type Opportunity struct {
 	EstimatedCost  float64  `json:"estimated_cost"`
 }
 
+// LabsKeywordInfo holds keyword intelligence for opportunity scoring.
+type LabsKeywordInfo struct {
+	SearchVolume int
+	Difficulty   float64
+	Intent       string
+}
+
 // MergeInput holds all data sources for opportunity detection.
 type MergeInput struct {
-	GSCSeeds    []gsc.OpportunitySeed
-	SERPResults map[string]*serp.AnalyzeResponse
+	GSCSeeds     []gsc.OpportunitySeed
+	SERPResults  map[string]*serp.AnalyzeResponse
+	LabsKeywords map[string]LabsKeywordInfo // keyword -> difficulty/volume/intent
 }
 
 // Merge combines GSC seed data with optional SERP evidence into ranked opportunities.
@@ -37,7 +47,13 @@ func Merge(input MergeInput) []Opportunity {
 	var opps []Opportunity
 
 	for _, seed := range input.GSCSeeds {
-		opp := fromGSCSeed(seed)
+		var labsInfo *LabsKeywordInfo
+		if input.LabsKeywords != nil {
+			if info, ok := input.LabsKeywords[seed.Query]; ok {
+				labsInfo = &info
+			}
+		}
+		opp := fromGSCSeed(seed, labsInfo)
 
 		// Enrich with SERP data if available
 		if serpResp, ok := input.SERPResults[seed.Query]; ok && serpResp != nil {
@@ -50,7 +66,7 @@ func Merge(input MergeInput) []Opportunity {
 	return opps
 }
 
-func fromGSCSeed(seed gsc.OpportunitySeed) Opportunity {
+func fromGSCSeed(seed gsc.OpportunitySeed, labsInfo *LabsKeywordInfo) Opportunity {
 	opp := Opportunity{
 		Type:    TypeKeyword,
 		Target:  seed.Query,
@@ -87,12 +103,38 @@ func fromGSCSeed(seed gsc.OpportunitySeed) Opportunity {
 		opp.Evidence = append(opp.Evidence, "query: "+seed.Query)
 	}
 
+	// Enrich with Labs keyword intelligence
+	if labsInfo != nil {
+		opp.Sources = append(opp.Sources, "labs")
+		opp.Evidence = append(opp.Evidence, fmt.Sprintf("keyword difficulty: %.0f/100", labsInfo.Difficulty))
+		opp.Evidence = append(opp.Evidence, fmt.Sprintf("monthly search volume: %d", labsInfo.SearchVolume))
+
+		if labsInfo.Difficulty < 30 && seed.Position > 5 {
+			opp.ImpactEstimate = "high"
+			opp.Confidence += 0.15
+		}
+
+		if labsInfo.Difficulty > 70 {
+			opp.ImpactEstimate = "low"
+			opp.Evidence = append(opp.Evidence, "highly competitive keyword")
+		}
+
+		if labsInfo.Intent != "" {
+			opp.Evidence = append(opp.Evidence, fmt.Sprintf("search intent: %s", labsInfo.Intent))
+		}
+
+		// Cap confidence at 1.0
+		if opp.Confidence > 1.0 {
+			opp.Confidence = 1.0
+		}
+	}
+
 	return opp
 }
 
 func enrichWithSERP(opp *Opportunity, seed gsc.OpportunitySeed, serpResp *serp.AnalyzeResponse) {
-	opp.Sources = append(opp.Sources, "serpapi")
-	opp.EstimatedCost = 0.01 // one SERP query used for validation
+	opp.Sources = append(opp.Sources, "serp")
+	opp.EstimatedCost = 0.002 // approximate per-query SERP cost
 
 	// Check if the seed page appears in current SERP results
 	pageFound := false
@@ -114,13 +156,26 @@ func enrichWithSERP(opp *Opportunity, seed gsc.OpportunitySeed, serpResp *serp.A
 		opp.Evidence = append(opp.Evidence, "page not found in current SERP top results")
 	}
 
-	// Check for featured snippets / answer boxes (simple heuristic)
-	for _, result := range serpResp.OrganicResults {
-		if result.Position == 0 {
-			opp.Type = TypeAnswer
-			opp.Evidence = append(opp.Evidence, "answer box detected for this query")
+	// AI Overview detection
+	if serpResp.HasAIOverview {
+		opp.Type = TypeAnswer
+		opp.Evidence = append(opp.Evidence, "AI Overview present — clicks may be suppressed")
+	}
+
+	// Featured Snippet opportunity
+	for _, feat := range serpResp.Features {
+		if feat.Type == serp.FeatureFeaturedSnippet {
+			// If site ranks 2-10, there's an opportunity to capture position 0
+			if int(seed.Position) >= 2 && int(seed.Position) <= 10 {
+				opp.Evidence = append(opp.Evidence, "Featured Snippet opportunity — you could capture position 0")
+			}
 			break
 		}
+	}
+
+	// People Also Ask detection
+	if len(serpResp.RelatedQuestions) > 0 {
+		opp.Evidence = append(opp.Evidence, fmt.Sprintf("%d People Also Ask questions detected", len(serpResp.RelatedQuestions)))
 	}
 
 	// Cap confidence at 1.0

@@ -80,18 +80,6 @@ func PrintErrorResponse(message string, err error, metadata map[string]any, form
 	return PrintCodedError("", message, err, metadata, format)
 }
 
-// PrintError writes a JSON-encoded CLI error to stderr.
-func PrintError(message string, err error) {
-	detail := ""
-	if err != nil {
-		detail = err.Error()
-	}
-
-	payload := map[string]string{"error": message, "detail": detail}
-	body, _ := json.MarshalIndent(payload, "", "  ")
-	fmt.Fprintln(os.Stderr, string(body))
-}
-
 // Print renders output according to requested format.
 func Print(data any, format Format) error {
 	switch format {

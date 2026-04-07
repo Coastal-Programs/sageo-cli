@@ -110,30 +110,6 @@ func TestFetchedAtAutoSet(t *testing.T) {
 	}
 }
 
-func TestMetadataOutput(t *testing.T) {
-	meta := Metadata{
-		Cached:    true,
-		Source:    "serpapi",
-		FetchedAt: "2025-01-01T00:00:00Z",
-	}
-
-	body, err := json.Marshal(meta)
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-
-	var decoded Metadata
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-	if !decoded.Cached {
-		t.Fatal("expected cached=true")
-	}
-	if decoded.Source != "serpapi" {
-		t.Fatalf("expected source 'serpapi', got %q", decoded.Source)
-	}
-}
-
 func TestCacheFilePermissions(t *testing.T) {
 	store := newTestStore(t)
 

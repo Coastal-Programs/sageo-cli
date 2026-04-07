@@ -16,8 +16,9 @@ type HTTPClient interface {
 
 // Client calls the Google PageSpeed Insights API.
 type Client struct {
-	apiKey     string
-	httpClient HTTPClient
+	apiKey      string
+	accessToken string
+	httpClient  HTTPClient
 }
 
 // Result holds the extracted Core Web Vitals from a PSI response.
@@ -38,6 +39,15 @@ func NewClient(apiKey string, httpClient HTTPClient) *Client {
 		httpClient = &http.Client{Timeout: 120 * time.Second}
 	}
 	return &Client{apiKey: apiKey, httpClient: httpClient}
+}
+
+// NewClientWithToken creates a PSI client that authenticates via an OAuth2 Bearer token.
+// This allows reuse of an existing Google OAuth token (e.g. from GSC) for PSI requests.
+func NewClientWithToken(accessToken string, httpClient HTTPClient) *Client {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 120 * time.Second}
+	}
+	return &Client{accessToken: accessToken, httpClient: httpClient}
 }
 
 const baseURL = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
@@ -70,6 +80,10 @@ func (c *Client) Run(targetURL, strategy string) (*Result, error) {
 		req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("building request: %w", err)
+		}
+
+		if c.accessToken != "" {
+			req.Header.Set("Authorization", "Bearer "+c.accessToken)
 		}
 
 		resp, err := c.httpClient.Do(req)

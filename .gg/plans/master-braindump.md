@@ -749,3 +749,298 @@ The agent reads state.json and gets findings like:
 ```
 
 That's what no other tool gives you in one place.
+
+---
+
+## Phase Plan (Final)
+
+### Phase 1: Stabilise ✅ TASKS CREATED
+- Fix bugs (crawl ordering, double error print, score rounding — DONE in session)
+- Test all untested commands
+- Retry logic for free API calls
+- sageo status command
+- Wire crawl to save to state.json
+- State package unit tests
+- JSON envelope contract tests
+- Agent skill file
+
+### Phase 2: Get Everything from GSC ✅ TASKS CREATED
+- gsc query trends (date dimension)
+- gsc query devices (device dimension)
+- gsc query countries
+- gsc query appearances (rich results)
+- --page and --query filters on existing commands
+- --type flag for search type
+- Pagination for large sites
+- Wire GSC data into state.json
+- Update agent skill file
+
+### Phase 3: The Merge — Crawl vs GSC ✅ TASKS CREATED
+- URL normalization utility
+- Cross-source merge logic (5 rules)
+- Merge tests
+- Priority scoring
+- sageo analyze command
+- Update status with merged findings
+- Update agent skill file
+- Live test full flow
+
+### Phase 4: Deeper Audit + PageSpeed ✅ TASKS CREATED
+- Duplicate title detection (cross-page)
+- Duplicate meta description detection (cross-page)
+- Orphan page detection
+- Schema validation (quality, not just presence)
+- Tests for new rules
+- PageSpeed Insights integration (free API)
+- Wire PSI into state.json and merge
+- Update agent skill file
+- Live test
+
+### Phase 5: PDF Reports (PARKED)
+- Not creating tasks yet
+- Different kind of work (design/layout)
+- Doesn't make the tool smarter
+- Build when the core product is solid
+
+### What's NOT in any phase (deliberately)
+- MCP server — NO, CLI is the product
+- Bing Webmaster Tools — parked, revisit later
+- Retry on paid API calls — decided against, correct
+- LLM embedded in CLI — no
+- Dashboard / web UI — no
+- Cache visibility (sageo cache list/clear) — minor, add anytime
+
+---
+
+## Phase 5: SERP Feature Detection + Labs State Persistence
+
+### What was built
+- SERP feature types: Featured Snippet, PAA, AI Overview, Local Pack, Knowledge Graph, Top Stories, Inline Videos/Images/Shopping
+- DataForSEO SERP adapter switched from Regular to Advanced endpoint
+- Both DataForSEO and SerpAPI adapters parse SERP features
+- PAA nested sub-item parsing (DataForSEO returns questions as children of the PAA container)
+- SERP data persists to state.json with features, related questions, top domains, our position
+- Labs ranked-keywords saves to state.json (keyword, difficulty, volume, intent, position)
+- Labs competitors saves to state.json
+- 5 new merge engine rules: ai-overview-eating-clicks, featured-snippet-opportunity, paa-content-opportunity, easy-win-keyword, informational-content-gap
+- Opportunities engine enriched with Labs difficulty/volume/intent + SERP features
+- Batch SERP via DataForSEO Standard Queue (100 keywords per call, $0.0006 vs $0.002)
+- Bulk keyword difficulty command (all GSC keywords in one call)
+- Auto PSI on audit (top 5 pages, mobile strategy)
+- Labs search-intent command (up to 1,000 keywords per call)
+- Default location changed to Australia (location_code 2036) across all DataForSEO calls
+
+### Bugs found and fixed
+- PAA questions were empty — DataForSEO nests them as sub-items, parser wasn't recursing
+- our_position=0 was ambiguous — changed to -1 for "not found"
+- Merge engine required GSC — blocked SERP/Labs rules from firing without GSC
+- DataForSEO SERP failed without --location flag — now defaults to Australia
+- SerpAPI had no default location — now defaults to Perth, Western Australia
+- Opportunities source label hardcoded as "serpapi" — changed to generic "serp"
+- Opportunities cost hardcoded as $0.01 — updated to $0.002
+
+### Live testing results (coastalprograms.com)
+- 23 pages crawled, score 74.3
+- 19 GSC pages, 27 keywords
+- 5 SERP queries: AI Overview in 4/5, PAA in 5/5, Featured Snippet in 1/5
+- 1 Labs keyword (review funnel, volume 50, difficulty 0, intent commercial)
+- 31 merged findings total, 1 of 5 new rules fired (featured-snippet-opportunity)
+- Other new rules didn't fire due to small site + threshold calibration — thresholds lowered
+
+### Cost optimisation findings
+- SERP Live: $0.002/query → Standard Queue: $0.0006/query (70% savings)
+- Standard Queue supports 100 keywords per POST call
+- Labs Search Intent: up to 1,000 keywords for $0.001 + $0.0001/keyword
+- Bulk Keyword Difficulty: multiple keywords per call
+- PSI: completely free (25,000/day with API key)
+
+### Wiring trace findings
+- Merge engine returned nil without GSC — blocked all SERP/Labs rules (FIXED)
+- DataForSEO SERP adapter had zero tests (task created)
+- Competitor data saved to state but never consumed by any rule (noted, future feature)
+
+## Phase 6: Backlinks Integration
+
+### What was built
+- Backlinks package with types (Summary, Backlink, ReferringDomain, CompetitorBacklinks)
+- CLI commands: backlinks summary, list, referring-domains, competitors, gap
+- Gap analysis: finds domains linking to competitors but not you (domain_intersection endpoint)
+- State persistence for backlink data
+- 2 new merge rules: weak-backlink-profile, broken-backlinks-found
+- Status/analyze commands updated for backlinks data source
+
+### Pricing
+- Requires $100/month DataForSEO Backlinks API commitment (funds go to account balance)
+- $0.02 per request + $0.00003 per row
+- Max 1,000 rows per request
+
+## Phase Plan (Updated)
+
+### Phase 1-4: ✅ Complete (prior sessions)
+### Phase 5: ✅ Complete (this session — SERP features, Labs state, merge rules, batch, fixes)
+### Phase 6: ✅ Complete (this session — backlinks)
+### Phase 7: Action plan synthesis (NOT STARTED)
+- Take all merged findings and produce a prioritised "do these 5 things" action plan
+- Simple language, not technical jargon
+- This is the product — everything else is data collection
+
+### Phase 8: PDF reports (PARKED)
+### Phase 9: Historical tracking (PARKED)
+
+---
+
+## Retest Results (after fixes)
+
+### coastalprograms.com — retest 2026-04-07
+All 4 fixes verified against live data:
+- Fix 1 (default location): ✅ serp analyze works without --location flag, defaults to AU
+- Fix 2 (PAA questions): ✅ 4 questions extracted per query ("What is a review funnel?", etc.)
+- Fix 3 (position sentinel): ✅ state.json shows -1 for not-found, 3 for actual rank
+- Fix 4 (lowered thresholds): ✅ 3 new rules fired (ai-overview-eating-clicks, paa-content-opportunity, easy-win-keyword)
+
+34 merged findings total (up from 31 pre-fix):
+- ranking-but-not-clicking: 7
+- not-indexed: 7
+- issues-on-high-traffic-page: 3
+- schema-not-showing: 13
+- ai-overview-eating-clicks: 1 (NEW)
+- paa-content-opportunity: 2 (NEW)
+- easy-win-keyword: 1 (NEW)
+- featured-snippet-opportunity: 0 (fired in first test but not retest — SERP data changed)
+- informational-content-gap: 0 (only 1 Labs keyword with commercial intent — no candidates)
+
+### Additional fixes applied after retest
+- PSI auto-run during audit was only using API key path, not GSC OAuth token (FIXED)
+- PSI auth order: GSC OAuth token → API key → unauthenticated (matches standalone psi run command)
+- Login command correctly labels Google OAuth as "GSC + PSI"
+
+---
+
+## Thread 16: Cost Per Website Analysis (FUTURE)
+
+### The question
+What does it actually cost to run the full Sageo pipeline on one website? If the answer is $0.20 and SEO agencies charge $200-400/month for the same data, that's the selling point for the LinkedIn post and the product positioning.
+
+### What we need to calculate
+Run the full pipeline on a real site and track every API call:
+
+**Free tier (always $0):**
+- Crawl + audit: free (our crawler)
+- PSI: free (Google API, uses GSC OAuth)
+- GSC: free (Google API, OAuth)
+
+**Paid tier (DataForSEO):**
+- SERP batch (top 20 GSC keywords): 20 × $0.0006 = $0.012
+- Labs ranked-keywords: ~$0.01
+- Labs bulk-difficulty (all GSC keywords): ~$0.001
+- Labs competitors: ~$0.01
+- Labs search-intent: ~$0.001
+- Backlinks summary: $0.02
+- Backlinks gap: ~$0.02
+
+**Estimated total for a full analysis: ~$0.07-0.15 per site**
+
+### What to compare against
+- Ahrefs Lite: $129/month
+- Semrush Pro: $139/month
+- Screaming Frog: $259/year
+- Typical SEO agency audit: $500-2,000 one-off
+
+### How to verify
+- Run the full pipeline against coastalprograms.com
+- Check DataForSEO dashboard for actual spend
+- Log the exact cost in TEST-RESULTS.json
+- Build a `sageo cost-summary` command that reads state.json history and totals up all paid API costs
+
+### When to do this
+- After backlinks is live-tested
+- Before the LinkedIn post
+- This becomes part of the README and marketing: "Full SEO audit for under $0.20"
+
+---
+
+## Thread 17: The `sageo run` Command — The Product
+
+### The problem
+Right now it takes 8-10 separate commands in the right order to do a full analysis. The user needs to know what to run, what flags to pass, what order matters, which keywords to feed into SERP batch. That's an expert workflow, not a product.
+
+### What it should be
+One command:
+```bash
+sageo run
+```
+
+Or from a fresh directory with a website project:
+```bash
+sageo run --url https://mysite.com
+```
+
+It does everything automatically:
+
+1. **Init** — create `.sageo/state.json` if it doesn't exist (use `--url` or detect from existing state)
+2. **Crawl + Audit** — crawl the site, run all audit rules, auto-PSI on top pages
+3. **GSC** — if authenticated, pull pages + keywords. If not, skip and note it
+4. **Labs** — if DataForSEO creds exist:
+   - `ranked-keywords` for the domain
+   - `bulk-difficulty` on GSC keywords (if GSC data exists)
+   - `competitors` for the domain
+5. **SERP batch** — take top 10-20 GSC keywords (by impressions), run batch SERP to get features
+6. **Backlinks** — if Backlinks API access exists, run `summary` + `gap` (using Labs competitors)
+7. **Analyze** — run the merge engine across all available data
+8. **Output** — produce the action plan
+
+### How it handles missing credentials
+The command must degrade gracefully:
+- No GSC? Skip GSC, note "Connect GSC for deeper analysis"
+- No DataForSEO? Skip all paid calls, give free-only analysis
+- No Backlinks API? Skip backlinks, note "Add Backlinks API for link profile data"
+- Each skipped source reduces the analysis but doesn't break it
+
+### Cost control
+Before running any paid calls:
+- Show estimated total cost: "This analysis will cost approximately $0.08"
+- If `--dry-run`, show the breakdown and stop
+- If `approval_threshold_usd` is set and exceeded, stop and ask
+- Always show what was free vs what cost money in the final output
+
+### The output
+Not 34 raw findings. A summary:
+```
+Site: coastalprograms.com
+Score: 74/100
+Pages crawled: 23
+Data sources: crawl, gsc, psi, serp, labs
+
+Top 5 Actions:
+1. [HIGH] Fix title and meta description on /services — 69 impressions, 0 clicks (ranking-but-not-clicking)
+2. [HIGH] Your backlink profile is weak (2 referring domains) — start link building
+3. [HIGH] Fix crawl issues on homepage — it gets 5 clicks and has 2 issues
+4. [MEDIUM] "google review funnel" has an AI Overview eating clicks — optimize for citation
+5. [MEDIUM] Add FAQ content answering: "What is a review funnel?", "How do you create a review funnel?"
+
+Cost: $0.08 (crawl/audit/PSI/GSC free, SERP $0.012, Labs $0.022, Backlinks $0.04)
+```
+
+### The user's mental model
+The user is sitting in their website's working directory. They type `sageo run`. They wait 30-60 seconds. They get a clear list of what to fix. They fix it. They run `sageo run` again later to check progress.
+
+That's the product. Everything we've built so far is the engine behind this one command.
+
+### What needs to happen
+1. Build `sageo run` command that orchestrates the pipeline
+2. Build the action plan synthesiser (groups findings, deduplicates, ranks, outputs plain English)
+3. Add `--dry-run` for cost preview
+4. Add `--free-only` flag to skip all paid calls
+5. Track total cost in state.json history
+6. Smart re-run: if crawl data is < 24h old, skip re-crawl. If GSC data is < 1h old, skip re-pull.
+
+### Phase plan
+This is Phase 7. It's the most important phase left. Everything before it was building the engine. This is building the car.
+
+### Phase 7 sub-phases
+- 7a: Build `sageo run` orchestrator (chains existing commands, handles missing creds)
+- 7b: Build action plan synthesiser (groups + ranks + plain English output)
+- 7c: Smart caching (skip recent data, re-use state)
+- 7d: Cost tracking + summary
+- 7e: Live test full flow end-to-end
+- 7f: Verify cost against DataForSEO dashboard

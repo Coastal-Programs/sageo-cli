@@ -21,19 +21,6 @@ type Record struct {
 	TTLSeconds int64           `json:"ttl_seconds"`
 }
 
-// Metadata is command-facing cache metadata for output envelopes.
-type Metadata struct {
-	Cached    bool   `json:"cached"`
-	Source    string `json:"source"`
-	FetchedAt string `json:"fetched_at"`
-}
-
-// Store defines cache storage behavior.
-type Store interface {
-	Get(provider string, request any) (Record, bool, error)
-	Set(provider string, request any, record Record) error
-}
-
 // FileStore persists cache records on disk.
 type FileStore struct {
 	baseDir string
@@ -74,6 +61,7 @@ func (s *FileStore) Get(provider string, request any) (Record, bool, error) {
 		if err == nil {
 			expiresAt := fetchedAt.Add(time.Duration(rec.TTLSeconds) * time.Second)
 			if s.nowFunc().After(expiresAt) {
+				_ = os.Remove(path)
 				return Record{}, false, nil
 			}
 		}

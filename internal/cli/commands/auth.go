@@ -131,7 +131,7 @@ func loginGSC(format *string, verbose *bool) error {
 		"client_id":     {cfg.GSCClientID},
 		"redirect_uri":  {redirectURI},
 		"response_type": {"code"},
-		"scope":         {"https://www.googleapis.com/auth/webmasters.readonly"},
+		"scope":         {"https://www.googleapis.com/auth/webmasters.readonly openid"},
 		"state":         {state},
 		"access_type":   {"offline"},
 		"prompt":        {"consent"},

@@ -2,181 +2,287 @@
 
 ## Overview
 
-Sageo CLI is a Go + Cobra single-binary command-line tool for SEO, AEO, and GEO operations. It provides website crawling, rule-based SEO auditing, JSON report generation, Google Search Console integration, SERP analysis via SerpAPI or DataForSEO, and opportunity detection that merges signals from multiple sources.
+Sageo CLI is a Go + Cobra single-binary command-line tool for SEO, AEO, and GEO operations. It crawls websites, runs rule-based SEO audits, integrates Google Search Console, fetches SERP data with feature detection (AI Overviews, Featured Snippets, PAA), runs DataForSEO Labs keyword intelligence, performs backlink analysis, measures Core Web Vitals via PageSpeed Insights, and merges all signals through a 13-rule merge engine to produce prioritised, actionable findings. All paid API calls are cost-estimated, approval-gated, and cacheable. Default locale is Australia (location_code 2036, language `en`).
 
 ## Data Flow
 
 ```
-User Command → Provider (HTTP fetch) → Crawler (BFS) → Audit Engine → Report Generator → JSON file
+Crawl → Audit (+ auto PSI) → GSC → SERP (features) → Labs (difficulty/intent) → Backlinks → Analyze (merge) → Prioritised Findings
 ```
 
-The `crawl run` command stops after crawling. The `audit run` command runs crawl → audit. The `report generate` command runs crawl → audit → report (full pipeline).
+- `sageo init --url <site>` creates `.sageo/state.json`
+- `sageo crawl run` + `sageo audit run` populate crawl findings
+- `sageo psi run` fetches Core Web Vitals from Google PageSpeed Insights
+- `sageo gsc query pages/keywords` pulls Google Search Console data
+- `sageo serp analyze/batch` fetches SERP features and rankings
+- `sageo labs ranked-keywords/bulk-difficulty` enriches with keyword difficulty and intent
+- `sageo backlinks summary/gap` adds link profile data
+- `sageo analyze` runs the merge engine across all sources → writes `merged_findings` to state
+- `sageo status` shows a summary of what data is present and what's missing
+
+## Data Tiers
+
+| Tier | Sources | Cost | Notes |
+|------|---------|------|-------|
+| **1** | Crawl + Audit + PSI | Free | PSI uses Google's free API (optional API key for higher quota) |
+| **2** | GSC | Free | Requires OAuth2 setup (`sageo auth login gsc`) |
+| **3** | SERP, Labs, AEO, GEO | Paid | DataForSEO — SERP Live $0.002/query, Batch $0.0006/query, Labs $0.01/task |
+| **4** | Backlinks | Paid | DataForSEO Backlinks API — requires $100/month minimum commitment |
 
 ## Command Hierarchy
 
-- `version` — build/runtime metadata
-- `config` — local config management (`show`, `get`, `set`, `path`)
-- `crawl` — website crawling (`run`)
-- `audit` — SEO audit (`run`)
-- `report` — report generation and listing (`generate`, `list`)
-- `provider` — provider management (`list`, `use`)
-- `auth` — service authentication (`login`, `status`, `logout`)
-- `gsc` — Google Search Console (`sites list`, `sites use`, `query pages`, `query keywords`, `opportunities`)
-- `serp` — SERP analysis (`analyze`, `compare`) — paid, supports `--dry-run`
-- `opportunities` — merged opportunity detection from GSC + optional SERP enrichment
-- `aeo` — Answer Engine Optimization (`responses`, `keywords`) — paid, supports `--dry-run`
-- `geo` — Generative Engine Optimization (`mentions`, `top-pages`) — paid, supports `--dry-run`
-- `labs` — DataForSEO Labs intelligence (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`) — paid, supports `--dry-run`
-- `login` — interactive credential setup
-- `logout` — clear stored credentials
+### Project commands
+- `init` — create `.sageo/state.json` for a site (`--url`)
+- `status` — show project state summary (sources present/missing, findings count)
+- `analyze` — run cross-source merge engine, write `merged_findings` to state
 
-Global flags:
+### Core pipeline
+- `crawl run` — BFS website crawler
+- `audit run` — SEO audit with rule-based checks and scoring
+- `report generate` — full crawl → audit → JSON report pipeline
+- `report list` — list stored reports
+
+### PageSpeed Insights
+- `psi run` — fetch Core Web Vitals for a URL (`--url`, `--strategy mobile|desktop`)
+
+### Google Search Console
+- `gsc sites list` — list accessible GSC properties
+- `gsc sites use` — set active property
+- `gsc query pages` — top pages by search performance
+- `gsc query keywords` — top keywords by search performance
+- `gsc opportunities` — filtered query+page pairs for opportunity detection
+
+### SERP analysis (paid, `--dry-run`)
+- `serp analyze` — single query SERP analysis with feature detection
+- `serp compare` — compare SERP results across multiple queries
+- `serp batch` — batch SERP analysis via DataForSEO Standard queue ($0.0006/keyword, up to 100 keywords)
+
+### Labs intelligence (paid, `--dry-run`)
+- `labs ranked-keywords` — keywords a domain ranks for (with difficulty, volume, intent, position)
+- `labs keywords` — keyword ideas relevant to a domain
+- `labs overview` — domain ranking overview
+- `labs competitors` — competing domains by ranking overlap
+- `labs keyword-ideas` — keyword ideas from a seed keyword
+- `labs bulk-difficulty` — bulk keyword difficulty scores (`--keywords` or `--from-gsc`)
+
+### Backlinks (paid, `--dry-run`)
+- `backlinks summary` — backlink profile overview (total backlinks, referring domains, spam score, rank)
+- `backlinks list` — individual backlinks with source URLs and anchor text (`--dofollow-only`)
+- `backlinks referring-domains` — domains linking to the target
+- `backlinks competitors` — domains sharing backlink sources
+- `backlinks gap` — domains linking to competitors but not the target (auto-loads competitors from state)
+
+### AEO / GEO (paid, `--dry-run`)
+- `aeo responses` — AI answer engine responses for a query
+- `aeo keywords` — AEO keyword analysis
+- `geo mentions` — generative engine mention tracking
+- `geo top-pages` — top pages in generative results
+
+### Authentication & config
+- `login` — interactive credential setup (GSC OAuth, DataForSEO)
+- `logout` — clear stored credentials
+- `auth login` / `auth status` / `auth logout` — service-level authentication
+- `config show` / `config get` / `config set` / `config path` — config management
+- `provider list` / `provider use` — HTTP fetcher provider management
+- `version` — build/runtime metadata
+
+### Opportunities (legacy)
+- `opportunities` — merged opportunity detection from GSC + optional SERP enrichment
+
+### Global flags
 - `--output, -o` (`json`, `text`, `table`) default `json`
 - `--verbose, -v` boolean flag
 
 ## Package Responsibilities
 
 ### `cmd/sageo/main.go`
-Entrypoint that calls `internal/cli.Execute(version)`.
-Version is injected via ldflags in build/release flows.
+Entrypoint that calls `internal/cli.Execute(version)`. Version is injected via ldflags.
 
 ### `internal/cli`
-- `root.go`: root Cobra command, global flags, command registration.
-- `commands/*.go`: command constructors that wire services and output results.
-
-### `internal/provider`
-Provider abstraction layer:
-- `provider.go`: `Fetcher` interface, registry, and `NewFetcher` constructor.
-- `local/local.go`: built-in `net/http` fetcher with configurable timeout and User-Agent.
-
-The registry pattern allows future providers to register via `init()`.
+- `root.go`: root Cobra command, global flags, registration of all 18 top-level commands.
+- `commands/*.go`: command constructors that wire services, cost gates, and output.
 
 ### `internal/crawl`
-BFS website crawler:
-- `types.go`: `Request`, `Result`, `PageResult`, `Link`, `Image`, `Heading`, `CrawlError` types.
-- `service.go`: `Service` interface and `NewService` constructor.
-- `crawler.go`: BFS implementation with depth limit, max-pages cap, same-domain scoping, and concurrency control (5 workers).
-- `page.go`: HTML parsing using `golang.org/x/net/html` to extract title, meta description, canonical, headings, links, and images.
+BFS website crawler with depth limit, max-pages cap, same-domain scoping, and concurrent workers. Extracts title, meta description, canonical, headings, links, images, word count, and structured data.
 
 ### `internal/audit`
-SEO audit engine:
-- `types.go`: `Severity`, `Issue`, `Request`, `Result` types.
-- `service.go`: `Service` interface and `NewService` constructor.
-- `checker.go`: individual check functions for title, meta description, H1, image alt, canonical, and status code.
-- `engine.go`: runs all checkers across crawl results and computes a 0–100 score.
+Rule-based SEO audit engine. Checks title, meta description, H1, image alt, canonical, status code, word count, and noindex directives. Computes a 0–100 score across all crawled pages.
 
 ### `internal/report`
-Report generation and storage:
-- `service.go`: `Service` interface (with `Generate` and `List` methods), `Request`, `Result`, `ReportMeta` types.
-- `generator.go`: writes JSON reports to `~/.config/sageo/reports/` and reads stored report metadata.
+JSON report generation and storage. Writes reports to `~/.config/sageo/reports/` and lists stored report metadata.
 
-### `internal/auth`
-OAuth token store:
-- `FileTokenStore`: persists tokens to `~/.config/sageo/auth/<service>.json`
-- `Save`, `Load`, `Delete`, `Status` operations
-- Expiry checking based on stored `expires_at`
+### `internal/psi`
+Google PageSpeed Insights client. Fetches Core Web Vitals (LCP, CLS, FCP, TBT, SI) for a URL. Supports API key auth, OAuth token auth (reusing GSC token), or unauthenticated mode.
 
-### `internal/gsc`
-Google Search Console client:
-- `Client`: authenticated API client for GSC
-- `ListSites`: list accessible properties
-- `QueryPages`, `QueryKeywords`: Search Analytics queries by dimension
-- `QueryOpportunities`: filtered query+page pairs for opportunity detection
-- `HTTPClient` interface for testability
+### `internal/state`
+Project state persistence. Manages `.sageo/state.json` containing crawl findings, GSC data, PSI results, SERP queries with features, Labs keywords with difficulty/intent, backlink profile data, merged findings, and action history.
+
+### `internal/merge`
+Cross-source merge engine with 13 rules. Compares crawl findings, GSC data, PSI results, SERP features, Labs keywords, and backlink data to produce prioritised `MergedFinding` objects sorted by urgency score.
 
 ### `internal/serp`
-SERP provider abstraction:
-- `Provider` interface: `Name()`, `Estimate()`, `Analyze()`
-- `AnalyzeRequest`, `AnalyzeResponse`, `OrganicResult` types
-
-### `internal/serp/serpapi`
-SerpAPI adapter:
-- Implements `serp.Provider`
-- Cost estimation at $0.01/search
-- JSON response parsing with domain extraction
-- `WithBaseURL` and `WithHTTPClient` options for testing
-
-### `internal/dataforseo`
-Shared DataForSEO HTTP client:
-- Basic Auth credential handling
-- Configurable base URL and HTTP client
-- Reused by AEO, GEO, Labs, and DataForSEO-backed SERP commands
+SERP provider abstraction. Defines `Provider` interface (`Name`, `Estimate`, `Analyze`), request/response types, and 9 SERP feature type constants (Featured Snippet, PAA, Local Pack, Knowledge Graph, AI Overview, Top Stories, Inline Videos, Inline Shopping, Inline Images).
 
 ### `internal/serp/dataforseo`
-DataForSEO SERP adapter:
-- Implements `serp.Provider`
-- Uses DataForSEO organic search endpoint
-- Provider-selected in CLI via `serp_provider = "dataforseo"`
+DataForSEO SERP adapter. Implements `serp.Provider` for Live endpoint ($0.002/query) and adds `AnalyzeBatch` for Standard queue ($0.0006/query). Defaults to Australia (location_code 2036) and English.
 
-### `internal/cli/commands/labs.go`
-DataForSEO Labs command implementations:
-- `ranked-keywords` — keywords a domain/URL ranks for, with position, volume, and difficulty
-- `keywords` — keyword ideas relevant to a domain
-- `overview` — domain ranking distribution and estimated traffic
-- `competitors` — competing domains by ranking overlap
-- `keyword-ideas` — keyword ideas from a seed keyword
-- All subcommands: credential check, $0.01/task cost estimate, approval gate, `--dry-run`
+### `internal/serp/serpapi`
+SerpAPI adapter. Implements `serp.Provider` at $0.01/search. Fallback when DataForSEO credentials are not configured.
+
+### `internal/backlinks`
+Backlink domain types: `Summary`, `Backlink`, `ReferringDomain`, `CompetitorBacklinks`, `BacklinkGap`. Command implementations live in `internal/cli/commands/backlinks.go` and call the DataForSEO Backlinks API directly.
 
 ### `internal/opportunities`
-Opportunity detection and merge logic:
-- `Merge`: combines GSC seeds with optional SERP evidence
-- Classifies opportunities by type (`page`, `keyword`, `answer`)
-- Scores by confidence, impact estimate, and effort estimate
-- SERP enrichment adds position validation and answer box detection
+Legacy opportunity detection. Merges GSC seeds with optional SERP evidence into scored opportunities. Largely superseded by the `merge` engine + `analyze` command for cross-source analysis.
+
+### `internal/gsc`
+Google Search Console client. Authenticated API client for listing sites, querying pages/keywords, and generating opportunity seeds.
+
+### `internal/auth`
+OAuth token store. Persists tokens to `~/.config/sageo/auth/<service>.json` with expiry checking and refresh support.
+
+### `internal/provider`
+Provider abstraction for HTTP fetching. Registry pattern with built-in `local` fetcher using `net/http`.
+
+### `internal/dataforseo`
+Shared DataForSEO HTTP client with Basic Auth. Reused by SERP, Labs, AEO, GEO, and Backlinks commands.
 
 ### `internal/common/config`
-Config management:
-- Path resolution (`SAGEO_CONFIG` override + XDG-style fallback)
-- `Load` and `Save`
-- Env override hooks for all keys including GSC, SERP, DataForSEO, and approval settings
-- Secret redaction for safe display (API keys, client secrets, passwords)
+Config management with path resolution, env override hooks, `Load`/`Save`, and secret redaction.
 
 ### `internal/common/cost`
-Cost estimation and approval gates:
-- `BuildEstimate`: computes cost from unit pricing
-- `EvaluateApproval`: blocks execution when estimated cost exceeds threshold
-- Used by paid commands (`serp`, `opportunities` when enriched, `aeo`, `geo`, `labs`)
+Cost estimation (`BuildEstimate`) and approval gates (`EvaluateApproval`). Used by all paid commands.
 
 ### `internal/common/cache`
-File-based response caching:
-- `FileStore`: persists cached responses to `~/.config/sageo/cache/<provider>/<hash>.json`
-- TTL-based expiry
-- `Metadata` type for output envelope integration
+File-based response caching to `~/.config/sageo/cache/<provider>/<hash>.json` with TTL-based expiry.
+
+### `internal/common/urlnorm`
+URL normalisation utilities. Strips trailing slashes, lowercases scheme/host, removes fragments. Used by the merge engine to join data across sources.
+
+### `internal/common/retry`
+HTTP retry utilities with backoff for transient failures.
 
 ### `pkg/output`
-Shared envelope and renderer:
-- JSON-first for machine consumption
-- Optional text/table rendering modes
-- Success and error helpers for consistent command responses
-- Machine-readable error codes (`errors.go`) for programmatic error classification
-- `PrintCodedError` attaches an error code to the envelope; `PrintErrorResponse` delegates with an empty code
+Shared envelope renderer. JSON-first output with optional text/table modes. Machine-readable error codes for programmatic classification.
 
-## Config Model
+## State Model
 
-Keys:
-- `active_provider` — which provider to use for HTTP fetching (default: `local`)
-- `api_key` (redacted on read/show)
-- `base_url`
-- `organization_id`
-- `serp_provider` — SERP data provider (default: `serpapi`)
-- `serp_api_key` (redacted on read/show)
-- `dataforseo_login` (redacted on read/show)
-- `dataforseo_password` (redacted on read/show)
-- `approval_threshold_usd` — cost gate threshold; 0 means no gate
-- `gsc_property` — active GSC property URL
-- `gsc_client_id` (redacted on read/show)
-- `gsc_client_secret` (redacted on read/show)
+The `.sageo/state.json` file is the single source of truth for a project. It accumulates data from multiple sources:
 
-Default file: `~/.config/sageo/config.json`
-Override: `SAGEO_CONFIG` (must be absolute `.json` path)
+```json
+{
+  "site": "https://example.com",
+  "initialized": "2025-01-01T00:00:00Z",
+  "last_crawl": "...",
+  "score": 72.5,
+  "pages_crawled": 15,
+  "findings": [
+    { "rule": "missing-meta-description", "url": "...", "value": "...", "verdict": "...", "why": "...", "fix": "..." }
+  ],
+  "gsc": {
+    "last_pull": "...",
+    "property": "sc-domain:example.com",
+    "top_pages": [{ "key": "...", "clicks": 10, "impressions": 200, "ctr": 0.05, "position": 8.3 }],
+    "top_keywords": [{ "key": "...", "clicks": 5, "impressions": 100, "ctr": 0.05, "position": 12.1 }]
+  },
+  "psi": {
+    "last_run": "...",
+    "pages": [{ "url": "...", "performance_score": 45, "lcp_ms": 5200, "cls": 0.32, "strategy": "mobile" }]
+  },
+  "serp": {
+    "last_run": "...",
+    "queries": [{
+      "query": "example keyword",
+      "has_ai_overview": true,
+      "features": [{ "type": "featured_snippet", "position": 1, "title": "...", "url": "...", "domain": "..." }],
+      "related_questions": ["What is...?", "How to...?"],
+      "top_domains": ["competitor1.com", "competitor2.com"],
+      "our_position": 5
+    }]
+  },
+  "labs": {
+    "last_run": "...",
+    "target": "example.com",
+    "keywords": [{ "keyword": "...", "search_volume": 1200, "difficulty": 23, "cpc": 1.50, "intent": "informational", "position": 8 }],
+    "competitors": ["competitor1.com", "competitor2.com"]
+  },
+  "backlinks": {
+    "last_run": "...",
+    "target": "example.com",
+    "total_backlinks": 1500,
+    "total_referring_domains": 120,
+    "broken_backlinks": 15,
+    "rank": 45,
+    "dofollow": 1200,
+    "nofollow": 300,
+    "spam_score": 5.2,
+    "top_referrers": ["referrer1.com", "referrer2.com"],
+    "gap_domains": ["gapsite1.com", "gapsite2.com"]
+  },
+  "merged_findings": [...],
+  "last_analysis": "...",
+  "history": [{ "ts": "...", "action": "crawl", "detail": "..." }]
+}
+```
+
+## Merge Engine Rules
+
+The merge engine (`internal/merge`) runs 13 rules across all available data sources. Rules only fire when their required data sources are present.
+
+| # | Rule | Sources Required | Verdict | Description |
+|---|------|-----------------|---------|-------------|
+| 1 | `ranking-but-not-clicking` | crawl + GSC | high | Page has impressions but 0 clicks and crawl issues |
+| 2 | `not-indexed` | crawl + GSC | medium | Page found in crawl but absent from GSC (may not be indexed) |
+| 3 | `issues-on-high-traffic-page` | crawl + GSC | high | Page with organic clicks also has crawl issues |
+| 4 | `thin-content-ranking-well` | crawl + GSC | medium | Page under 300 words ranks in top 10 — content expansion opportunity |
+| 5 | `schema-not-showing` | crawl + GSC | low | Page has schema markup but CTR is below 5% — rich results may not appear |
+| 6 | `slow-core-web-vitals` | PSI + GSC | high | Performance score < 50 on a page with GSC impressions |
+| 7 | `ai-overview-eating-clicks` | SERP + GSC | medium | Query has AI Overview and CTR is below 3% |
+| 8 | `featured-snippet-opportunity` | SERP + GSC | medium | Query has Featured Snippet and site ranks positions 2–10 |
+| 9 | `paa-content-opportunity` | SERP + crawl | low | Query has 2+ PAA questions not addressed by the page |
+| 10 | `easy-win-keyword` | Labs + GSC | high | Keyword with difficulty < 30, volume > 30, ranking beyond position 5 |
+| 11 | `informational-content-gap` | Labs | medium | Informational keyword with volume > 50, difficulty < 40, not ranking |
+| 12 | `weak-backlink-profile` | Backlinks + Labs | high | Fewer than 10 referring domains while targeting keywords with difficulty > 20 |
+| 13 | `broken-backlinks-found` | Backlinks | medium | Broken backlinks wasting link equity |
+
+All findings are scored numerically (priority_score 10–100) and sorted by urgency. Priority labels: `high` (70–100), `medium` (40–69), `low` (10–39).
+
+## SERP Feature Detection
+
+The SERP adapter detects 9 feature types from DataForSEO results:
+
+| Feature Type | Constant |
+|-------------|----------|
+| Featured Snippet | `featured_snippet` |
+| People Also Ask | `people_also_ask` |
+| Local Pack | `local_pack` |
+| Knowledge Graph | `knowledge_graph` |
+| AI Overview | `ai_overview` |
+| Top Stories | `top_stories` |
+| Inline Videos | `inline_videos` |
+| Inline Shopping | `inline_shopping` |
+| Inline Images | `inline_images` |
 
 ## Cost-Aware Execution Model
 
-### Free-first, paid-second
-Recommended execution order:
-1. Local crawl/audit (free)
-2. Google Search Console data (free, requires OAuth)
-3. Paid lookups only for narrowed, high-value checks (SERP/AEO/GEO/Labs)
+### Pricing Reference
+
+| Command | Method | Cost |
+|---------|--------|------|
+| `serp analyze` | Live/Advanced | $0.002/query |
+| `serp batch` | Standard queue | $0.0006/query |
+| `serp compare` | Live × N queries | $0.002 × N |
+| `labs ranked-keywords` | Labs API | $0.01/task |
+| `labs keywords` | Labs API | $0.01/task |
+| `labs overview` | Labs API | $0.01/task |
+| `labs competitors` | Labs API | $0.01/task |
+| `labs keyword-ideas` | Labs API | $0.01/task |
+| `labs bulk-difficulty` | Labs API | $0.001/task (up to 1000 keywords) |
+| `backlinks summary` | Backlinks API | $0.02/task |
+| `backlinks list` | Backlinks API | $0.02 + $0.00003/row |
+| `backlinks referring-domains` | Backlinks API | $0.02 + $0.00003/row |
+| `backlinks competitors` | Backlinks API | $0.02 + $0.00003/row |
+| `backlinks gap` | Backlinks API | $0.02 + $0.00003/row |
 
 ### Cost metadata
 Paid commands expose machine-readable metadata:
@@ -194,10 +300,36 @@ When `approval_threshold_usd` is set (> 0), any paid command whose estimated cos
 ### Caching
 Paid responses are cached to `~/.config/sageo/cache/` with configurable TTL. Cache hits are reflected in output metadata and avoid repeat charges.
 
-### Why this matters
-`sageo-cli` is designed for AI agents. The CLI collects, normalizes, and prices evidence. The external AI agent decides what to do next.
+## Config Model
+
+Keys:
+- `active_provider` — HTTP fetcher provider (default: `local`)
+- `api_key` (redacted on read/show)
+- `base_url`
+- `organization_id`
+- `serp_provider` — SERP data provider (default: `serpapi`, auto-fallback to `dataforseo` when credentials present)
+- `serp_api_key` (redacted)
+- `dataforseo_login` (redacted)
+- `dataforseo_password` (redacted)
+- `approval_threshold_usd` — cost gate threshold; 0 means no gate
+- `gsc_property` — active GSC property URL
+- `gsc_client_id` (redacted)
+- `gsc_client_secret` (redacted)
+- `psi_api_key` — Google PageSpeed Insights API key (redacted)
+
+Default file: `~/.config/sageo/config.json`
+Override: `SAGEO_CONFIG` (must be absolute `.json` path)
+
+## Location Defaults
+
+All DataForSEO API calls default to:
+- **Location**: Australia (location_code `2036`)
+- **Language**: English (`en`)
+
+Labs and SERP commands accept `--location` and `--language` flags to override. Supported locations for Labs: Australia, United States, United Kingdom, Canada, New Zealand.
 
 ## Build and Release
 
 - `Makefile` for build/test/lint/release workflows
 - `scripts/release.sh` cross-compiles macOS, Linux, and Windows artifacts
+- `make install` builds and installs `sageo` to `~/go/bin`

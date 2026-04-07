@@ -25,13 +25,6 @@ type Fetcher struct {
 // Option configures the local Fetcher.
 type Option func(*Fetcher)
 
-// WithTimeout sets the HTTP client timeout.
-func WithTimeout(d time.Duration) Option {
-	return func(f *Fetcher) {
-		f.client.Timeout = d
-	}
-}
-
 // WithUserAgent sets the User-Agent header.
 func WithUserAgent(ua string) Option {
 	return func(f *Fetcher) {

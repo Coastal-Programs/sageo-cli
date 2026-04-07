@@ -12,6 +12,11 @@ import (
 
 const defaultBaseURL = "https://api.dataforseo.com"
 
+// maxResponseSize caps the bytes read from any DataForSEO response to prevent
+// OOM on malformed or malicious payloads. 50 MB is generous enough for large
+// Labs/SERP/Backlinks result sets.
+const maxResponseSize = 50 * 1024 * 1024 // 50 MB
+
 // HTTPClient is an interface for HTTP operations (supports testing).
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -74,7 +79,7 @@ func (c *Client) Post(endpoint string, body any) ([]byte, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}
@@ -83,6 +88,29 @@ func (c *Client) Post(endpoint string, body any) ([]byte, error) {
 		return nil, fmt.Errorf("dataforseo returned status %d: %s", resp.StatusCode, string(data))
 	}
 
+	return data, nil
+}
+
+// Get sends a GET request to the given endpoint path (e.g. "/v3/serp/google/organic/tasks_ready")
+// and returns the raw response bytes.
+func (c *Client) Get(endpoint string) ([]byte, error) {
+	req, err := http.NewRequest("GET", c.baseURL+endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Authorization", "Basic "+basicAuth(c.login, c.password))
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dataforseo returned status %d: %s", resp.StatusCode, string(data))
+	}
 	return data, nil
 }
 
@@ -117,7 +145,7 @@ func (c *Client) VerifyCredentials() error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return fmt.Errorf("reading verify response body: %w", err)
 	}

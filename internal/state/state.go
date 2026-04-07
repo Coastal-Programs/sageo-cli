@@ -62,6 +62,64 @@ type PSIData struct {
 	Pages   []PSIResult `json:"pages,omitempty"`
 }
 
+// SERPFeatureRecord is a SERP feature stored in state.
+type SERPFeatureRecord struct {
+	Type     string `json:"type"`
+	Position int    `json:"position,omitempty"`
+	Title    string `json:"title,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Domain   string `json:"domain,omitempty"`
+}
+
+// SERPQueryResult stores SERP data for a single query.
+type SERPQueryResult struct {
+	Query            string              `json:"query"`
+	HasAIOverview    bool                `json:"has_ai_overview"`
+	Features         []SERPFeatureRecord `json:"features,omitempty"`
+	RelatedQuestions []string            `json:"related_questions,omitempty"`
+	TopDomains       []string            `json:"top_domains,omitempty"`
+	OurPosition      int                 `json:"our_position"` // -1 if not found in results, 0+ for actual position
+}
+
+// SERPData holds all SERP results saved to state.
+type SERPData struct {
+	LastRun string            `json:"last_run,omitempty"`
+	Queries []SERPQueryResult `json:"queries,omitempty"`
+}
+
+// LabsKeyword stores keyword intelligence from DataForSEO Labs.
+type LabsKeyword struct {
+	Keyword      string  `json:"keyword"`
+	SearchVolume int     `json:"search_volume"`
+	Difficulty   float64 `json:"difficulty"` // 0-100
+	CPC          float64 `json:"cpc,omitempty"`
+	Intent       string  `json:"intent,omitempty"`   // informational, navigational, commercial, transactional
+	Position     int     `json:"position,omitempty"` // current ranking position if from ranked-keywords
+}
+
+// LabsData holds Labs intelligence saved to state.
+type LabsData struct {
+	LastRun     string        `json:"last_run,omitempty"`
+	Target      string        `json:"target,omitempty"` // domain that was analyzed
+	Keywords    []LabsKeyword `json:"keywords,omitempty"`
+	Competitors []string      `json:"competitors,omitempty"` // top competitor domains
+}
+
+// BacklinksData holds backlink profile data saved to state.
+type BacklinksData struct {
+	LastRun               string   `json:"last_run,omitempty"`
+	Target                string   `json:"target,omitempty"`
+	TotalBacklinks        int64    `json:"total_backlinks"`
+	TotalReferringDomains int64    `json:"total_referring_domains"`
+	BrokenBacklinks       int64    `json:"broken_backlinks"`
+	Rank                  int      `json:"rank"`
+	DoFollow              int64    `json:"dofollow"`
+	NoFollow              int64    `json:"nofollow"`
+	SpamScore             float64  `json:"spam_score"`
+	TopReferrers          []string `json:"top_referrers,omitempty"` // top 10 referring domain names
+	GapDomains            []string `json:"gap_domains,omitempty"`   // top 20 gap domains from backlinks gap analysis
+}
+
 // State is the single project file the AI reads and writes.
 type State struct {
 	Site           string          `json:"site"`
@@ -74,6 +132,9 @@ type State struct {
 	LastAnalysis   string          `json:"last_analysis,omitempty"`
 	GSC            *GSCData        `json:"gsc,omitempty"`
 	PSI            *PSIData        `json:"psi,omitempty"`
+	SERP           *SERPData       `json:"serp,omitempty"`
+	Labs           *LabsData       `json:"labs,omitempty"`
+	Backlinks      *BacklinksData  `json:"backlinks,omitempty"`
 	History        []HistoryEntry  `json:"history,omitempty"`
 }
 
@@ -162,14 +223,44 @@ func (s *State) Sources() (used []string, missing []string) {
 		missing = append(missing, "psi")
 	}
 
+	if s.SERP != nil && s.SERP.LastRun != "" {
+		used = append(used, "serp")
+	} else {
+		missing = append(missing, "serp")
+	}
+
+	if s.Labs != nil && s.Labs.LastRun != "" {
+		used = append(used, "labs")
+	} else {
+		missing = append(missing, "labs")
+	}
+
+	if s.Backlinks != nil && s.Backlinks.LastRun != "" {
+		used = append(used, "backlinks")
+	} else {
+		missing = append(missing, "backlinks")
+	}
+
 	return used, missing
 }
 
-// AddHistory appends an entry to the history log.
+// UpsertPSI replaces the PSI data in state.
+func (s *State) UpsertPSI(data PSIData) {
+	data.LastRun = time.Now().UTC().Format(time.RFC3339)
+	s.PSI = &data
+}
+
+const maxHistoryEntries = 200
+
+// AddHistory appends an entry to the history log, keeping at most the last
+// maxHistoryEntries entries to prevent unbounded state growth.
 func (s *State) AddHistory(action, detail string) {
 	s.History = append(s.History, HistoryEntry{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Action:    action,
 		Detail:    detail,
 	})
+	if len(s.History) > maxHistoryEntries {
+		s.History = s.History[len(s.History)-maxHistoryEntries:]
+	}
 }

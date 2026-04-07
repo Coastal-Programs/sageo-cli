@@ -59,6 +59,17 @@ func NewStatusCmd(format *string, verbose *bool) *cobra.Command {
 				"sources_used":          used,
 				"sources_missing":       missing,
 			}
+			if s.SERP != nil {
+				data["serp_queries_stored"] = len(s.SERP.Queries)
+			}
+			if s.Labs != nil {
+				data["labs_keywords_stored"] = len(s.Labs.Keywords)
+				data["labs_competitors_stored"] = len(s.Labs.Competitors)
+			}
+			if s.Backlinks != nil {
+				data["backlinks_total"] = s.Backlinks.TotalBacklinks
+				data["referring_domains_total"] = s.Backlinks.TotalReferringDomains
+			}
 			metadata := map[string]any{
 				"generated_at": time.Now().UTC().Format(time.RFC3339),
 			}
