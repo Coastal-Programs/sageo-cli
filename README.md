@@ -275,7 +275,8 @@ sageo init --url https://client.example --brand "Client,client.example"
 sageo auth login gsc
 sageo run https://client.example --budget 15
 sageo recommendations review
-sageo report html --output ./client-report.html --brand-color "#0A6AFF" --logo ./client-logo.png --open
+sageo report html --brand-color "#0A6AFF" --logo ./client-logo.png --open
+# (with no --output, the report lands in .sageo/reports/sageo-report-<UTC-timestamp>.html)
 ```
 
 Scheduled weekly refresh (CI-friendly, no prompts):

@@ -73,7 +73,7 @@ sageo compare --output-html ./diff-$(date +%F).html
 
 Agents presenting Sageo output to humans MUST follow these. They are not disclaimers; they are how the tool behaves.
 
-1. **Quote priority tiers, not specific click numbers.** The primary signal is `priority_tier`: `high`, `medium`, `low`, `unknown`. If a range is quoted, quote it as a range with the tier attached. "High tier, estimated 200 to 500 clicks/mo, calibrated against 42 prior outcomes on this site." Never "you will get 347 more clicks".
+1. **Quote priority tiers, not specific click numbers.** The primary signal is `priority_tier`: `high`, `medium`, `low`, `unknown`. If a range is quoted, quote it as a range with the tier attached. "High tier, estimated 200 to 500 clicks/mo, calibrated against 42 prior outcomes on this site." Never "you will get 347 more clicks". On cold projects without calibration data, the tier may be derived from the rule-engine priority score (>=80 High, >=50 Medium, else Low) and is rendered with a `(provisional)` badge; treat these as directional until historical outcomes accumulate.
 2. **Surface caveats every time.** The forecaster emits `caveats[]` like `low_search_volume`, `short_history`, `insufficient_data`, `uncalibrated`. Pass these through to the user.
 3. **Observational data is not causal.** `compare` output is correlational. Algorithm updates, seasonality, and concurrent work are not controlled for. Say so.
 4. **LLM drafts are a starting point.** `recommended_value` written by `recommendations draft` is `pending_review`. Never present it as publish-ready. Require `sageo recommendations review` before it hits a report.

@@ -144,7 +144,9 @@ Authoritative types live in `internal/state/state.go` and `internal/state/recomm
 - **`History`.** Rolling log (max 200 entries) of agent/user actions.
 - **`PipelineCursor`, `PipelineRuns`.** Resume bookmark and audit log of autonomous runs.
 
-Snapshots on disk (`.sageo/snapshots/<ts>/`) are frozen copies: `state.json`, `recommendations.json`, `report.html`, `metadata.json` (a `SnapshotMeta` with stages run, total cost, pipeline version, git commit, outcome). See `internal/state/snapshot.go` for the atomic write protocol and the `index.json` pointer.
+Snapshots on disk (`.sageo/snapshots/<ts>/`) are frozen copies: `state.json`, `recommendations.json`, `report.html`, `metadata.json` (a `SnapshotMeta` with stages run, total cost, pipeline version, git commit, outcome). See `internal/state/snapshot.go` for the atomic write protocol and the `index.json` pointer. After a successful snapshot, the pipeline also mirrors the rendered report to `.sageo/reports/latest.html` so the most recent report is always at a predictable path.
+
+Ad-hoc `sageo report html` invocations without `--output` land in `.sageo/reports/sageo-report-<UTC-timestamp>.html` when a project is detected, falling back to `./sageo-report.html` with a stderr note otherwise.
 
 ## Recommendation lifecycle
 
@@ -154,7 +156,7 @@ One sentence per stage.
 2. **Generator.** The rule emits a `Recommendation` with `change_type`, `target_url`, `evidence`, `priority`, `effort_minutes`, and an empty `recommended_value`; `state.UpsertRecommendations` stores it keyed by ID.
 3. **Drafter.** `recommendations.Draft` picks up recommendations with empty values, assembles page + evidence context, calls the LLM driver, validates output, and stores `recommended_value` with `review_status = pending_review` and `original_draft` preserved.
 4. **Review gate.** `sageo recommendations review` walks the queue; the human sets `review_status` to `approved`, `edited`, or `rejected` with `reviewed_at`, `reviewed_by`, and optional `review_notes`.
-5. **Forecaster.** `forecast.AttachForecasts` computes raw click delta from the position-to-CTR curve, applies the calibration profile when available, and sets `ForecastedLift` with `priority_tier`, range, caveats, and `calibration_samples`.
+5. **Forecaster.** `forecast.AttachForecasts` computes raw click delta from the position-to-CTR curve, applies the calibration profile when available, and sets `ForecastedLift` with `priority_tier`, range, caveats, and `calibration_samples`. On cold projects without calibration data, `forecast.TierWithRulePriority` falls the tier back to the rule-engine priority score (>=80 High, >=50 Medium, else Low) so the report still shows actionable tiers instead of UNKNOWN across the board; these are badged `(provisional)` in the HTML.
 6. **Report.** `internal/report/html` renders approved and edited recommendations as cards, pending with a badge, rejected excluded entirely; the forecast table is sorted by priority tier.
 7. **Snapshot.** The finalised `Recommendation` is frozen into `.sageo/snapshots/<ts>/recommendations.json`.
 8. **Compare.** On the next run, `internal/compare` detectors check whether the recommendation was addressed (e.g. schema now visible, PSI crossed a good-band threshold, referring domains grew).

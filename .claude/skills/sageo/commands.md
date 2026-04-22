@@ -38,7 +38,7 @@ Cost tier legend: **Free**, **Free+OAuth**, **Paid** (DataForSEO micro), **Paid 
 | `sageo audit run --url <site> --depth 2 --max-pages 50 [--skip-psi]` | Free | Crawl + SEO rule audit (also runs PSI for top pages unless skipped) |
 | `sageo report generate --url <site>` | Free | Legacy stored report (JSON) |
 | `sageo report list` | Free | List generated reports |
-| `sageo report html --output ./report.html [--open] [--appendix] [--logo PATH] [--brand-color #HEX] [--title STR]` | Free | Primary output: self-contained client-ready HTML. PDF via browser Cmd+P |
+| `sageo report html [--output PATH] [--open] [--appendix] [--logo PATH] [--brand-color #HEX] [--title STR]` | Free | Primary output: self-contained client-ready HTML. PDF via browser Cmd+P. Default output: `.sageo/reports/sageo-report-<UTC-timestamp>.html` when a project exists, else `./sageo-report.html`. `sageo run` also mirrors the snapshot report to `.sageo/reports/latest.html` |
 | `sageo report pdf ...` | Free | DEPRECATED alias for `report html`. Emits a warning. Use `report html` directly |
 
 ## Google Search Console
