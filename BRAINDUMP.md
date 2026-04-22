@@ -110,8 +110,14 @@ Revisit if we build a LocalBusiness-focused flow.
 
 ## Known tension: multi-site vs single-site
 
-The tool is currently single-site per working directory. The optional global registry (in progress) adds cross-site calibration.
+The tool is currently single-site per working directory. A global registry for cross-site calibration and a `sageo portfolio` / `sageo sites` command group have been discussed but are deferred.
 
-Open question: should power users want a multi-site dashboard-like command? E.g. `sageo portfolio` listing all registered sites with last-run stats, open recommendations, forecasted totals.
+**Status: deferred, not scheduled.** The per-site flow (snapshots, compare, calibration, review gate, HTML report) just landed and needs real-world use before we build on top of it. Trigger to revisit: 3+ sites under active audit where per-site calibration is saturating and pooled cross-site data would meaningfully tighten forecasts.
 
-**Probably yes eventually.** Not a priority while the per-site flow is still being refined.
+Rough shape when picked up:
+
+- `~/.config/sageo/registry.json` as an opt-in index (`site → project_dir → last_snapshot_ts → summary`), gated behind a `registry.enabled` config flag, off by default.
+- `sageo sites {list, forget, prune-stale}` to manage it.
+- `sageo run` appends a registry entry when enabled.
+- Forecaster falls back to pooled `ObservedLift` records when per-site samples are below `MinSamplePerChangeType`.
+- Skill files (`.claude/skills/sageo/*`, `.gg/skills/sageo.md`) updated to document the new surface.
