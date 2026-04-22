@@ -21,3 +21,10 @@ bin/
 # Local environment
 .env
 .env.*
+
+# Project state (per-site state written by sageo init/run)
+.sageo/
+
+# Ad-hoc test output
+TEST-RESULTS*.json
+RETEST-RESULTS*.json

@@ -5,7 +5,7 @@ VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "d
 
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: build install clean tidy run test lint fmt vet check precommit help release
+.PHONY: build install clean tidy run test test-integration test-all check-tests lint fmt vet check precommit help release
 
 ## help: Show available make targets
 help:
@@ -30,9 +30,23 @@ tidy:
 	go mod tidy
 	go mod verify
 
-## test: Run all tests with race detector and coverage
-test:
-	go test -v -race -coverprofile=coverage.out ./...
+## check-tests: Lint test files — no unit test may hit the live internet
+check-tests:
+	@chmod +x scripts/check-no-live-tests.sh
+	@./scripts/check-no-live-tests.sh
+
+## test: Run unit tests only (no network, no cost, safe by default)
+test: check-tests
+	go test -race -coverprofile=coverage.out ./...
+
+## test-integration: Run integration tests that hit live paid APIs (opt-in)
+test-integration:
+	@echo "⚠️  This will hit paid APIs. Approx cost: \$$1-3. Ctrl-C to abort. Continuing in 5s..."
+	@sleep 5
+	SAGEO_LIVE_TESTS=1 go test -race -tags integration ./...
+
+## test-all: Run unit tests, then integration tests
+test-all: test test-integration
 
 ## coverage: Open test coverage report in browser
 coverage: test
