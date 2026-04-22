@@ -1,4 +1,25 @@
-# Sageo
+<div align="center">
+<pre>
+███████╗ █████╗  ██████╗ ███████╗ ██████╗      ██████╗██╗     ██╗
+██╔════╝██╔══██╗██╔════╝ ██╔════╝██╔═══██╗    ██╔════╝██║     ██║
+███████╗███████║██║  ███╗█████╗  ██║   ██║    ██║     ██║     ██║
+╚════██║██╔══██║██║   ██║██╔══╝  ██║   ██║    ██║     ██║     ██║
+███████║██║  ██║╚██████╔╝███████╗╚██████╔╝    ╚██████╗███████╗██║
+╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝ ╚═════╝      ╚═════╝╚══════╝╚═╝
+</pre>
+
+<p align="center">
+  <a href="https://go.dev/">
+    <img src="https://img.shields.io/badge/go-%3E%3D1.26-00ADD8.svg" alt="Go Version">
+  </a>
+  <a href="https://github.com/Coastal-Programs/sageo-cli/actions">
+    <img src="https://github.com/Coastal-Programs/sageo-cli/actions/workflows/test.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/Coastal-Programs/sageo-cli/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+  </a>
+</p>
+</div>
 
 A command-line tool that audits a website across SEO, AEO (Answer Engine Optimization), and GEO (Generative Engine Optimization) surfaces, generates evidence-backed recommendations for what to change, drafts the new copy with an LLM, forecasts the likely impact in priority tiers, and tracks results across runs. One Go binary, JSON-first output, state persisted under `.sageo/`.
 
