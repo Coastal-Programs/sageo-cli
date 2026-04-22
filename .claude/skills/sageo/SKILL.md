@@ -38,16 +38,35 @@ Parse with `jq`. Default format is `json`. Use `-o text` / `-o table` only when 
 
 ## The recommended flow
 
-For almost every "audit this site" request, use the one-shot, then review, then render HTML:
+For almost every "audit this site" request, use this exact sequence. Do not skip steps 2 and 3 — without an active GSC property, every forecast collapses to `priority_tier: unknown` and recommendations lose their search-volume signal.
 
 ```bash
+# 1. Project setup
 sageo init --url https://example.com --brand "Example,example.com"
+
+# 2. GSC auth (once per machine / per Google account)
+sageo auth login gsc
+
+# 3. Select the active GSC property for this project
+sageo gsc sites list                   # shows properties you have access to
+sageo gsc sites use https://example.com/   # MANDATORY before sageo run
+
+# 4. Full autonomous pipeline
 sageo run https://example.com --budget 10
-sageo recommendations review           # REQUIRED gate before any client-facing output
-sageo report html --output ./report.html --open
+
+# 5. Human review gate (REQUIRED before any client-facing output)
+sageo recommendations review
+
+# 6. Render the HTML deliverable
+sageo report html --open
+# (with no --output the file lands in .sageo/reports/sageo-report-<UTC-timestamp>.html)
 ```
 
-`sageo run` stages: `crawl, audit, gsc, psi, serp, labs, backlinks, aeo, merge, recommend, draft, forecast`. Every run writes a snapshot under `.sageo/snapshots/<utc-ts>/` (disable with `--no-snapshot`).
+**Do not run `sageo audit run` standalone before `sageo run`.** `sageo run` already includes the audit stage. The standalone `sageo audit run` subcommand is for isolated re-audits only.
+
+`sageo run` stages (run in order): `crawl → audit → gsc → psi → serp → labs → backlinks → aeo → merge → recommend → draft → forecast`, ending at a `review_gate` stage that is non-interactive unless `--no-review` / `--auto-approve-all` is passed. Every run writes a snapshot under `.sageo/snapshots/<utc-ts>/` (disable with `--no-snapshot`) and mirrors the rendered report to `.sageo/reports/latest.html`.
+
+**If you see `!! WARNING: no GSC property configured` in stderr when starting `sageo run`, stop immediately.** That warning means the flow above was not followed. Ctrl-C, run step 3, then restart step 4. Continuing past the warning produces a useless audit.
 
 Key `run` flags:
 - `--budget <USD>`: hard ceiling for total paid spend (0 = no cap)
