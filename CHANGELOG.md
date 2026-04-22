@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Evidence-backed AI-citation ChangeTypes** in `internal/state/recommendations.go`: `ChangeTLDR`, `ChangeListFormat`, `ChangeAuthorByline`, `ChangeFreshness`, `ChangeEntityConsistency`. Each type carries a doc comment citing the supporting section of `docs/research/ai-citation-signals-2026.md`.
+- **New merge rule `missing-author-signals`** — fires on any URL whose crawl findings include `missing-author-byline`; emits `ChangeAuthorByline` + a Person-schema recommendation. Priority scored 45-70 depending on GSC impressions.
+- **Drafter prompts for the new ChangeTypes** (`internal/recommendations/drafter.go`) with research-grounded constraints: `ChangeTLDR` enforces a 40-70 word budget and target query in the first sentence; `ChangeListFormat` enforces 3-7 dash-prefixed items; `ChangeAuthorByline`, `ChangeFreshness`, and `ChangeEntityConsistency` produce short plain-text outputs validated by new `listValidator` / `lineCountValidator` helpers.
+- **Forecaster handling** for the new AI-citation ChangeTypes — modelled as CTR-only uplifts (target position = current) in `internal/forecast/forecast.go`.
+
+### Changed
+- **Merge rule → ChangeType mappings rewritten against research evidence** (`internal/merge/recommendations.go`):
+  - `ai-overview-eating-clicks` now emits `ChangeTLDR` + `ChangeListFormat` + `ChangeSchema(FAQPage)` + `ChangeAuthorByline` + H2s per PAA (was: `ChangeBody` + `ChangeSchema` + H2s). Rationale cites Growth Memo's 44.2% first-30% finding and the signals matrix "likely" rows for list/table formatting and author bylines.
+  - `featured-snippet-opportunity` now emits `ChangeTLDR` (40-60 word definition block) rather than a generic `ChangeBody` rewrite — same passage serves both Featured Snippets and AI Overview / ChatGPT citation.
+  - `schema-not-showing` rationale updated to scope to Tier-1 types (Organization, Article, BreadcrumbList, Product, LocalBusiness); FAQPage reserved for the AI-Overview rule where Google's pipeline specifically indexes Q&A markup; HowTo dropped (removed from Google rich results Aug 2023).
+- Each rule generator carries a comment explaining *why* it emits its specific ChangeTypes, with pointers back to `docs/research/ai-citation-signals-2026.md`.
+
 ## [0.6.0] - 2026-04-22
 
 ### Added

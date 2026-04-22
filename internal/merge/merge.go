@@ -412,6 +412,18 @@ func Run(st *state.State) []MergedFinding {
 
 		// --- Rule 11: informational-content-gap ---
 		// Collect candidates then keep only top 10 by search volume.
+		// Skip keywords we're already ranking for (via GSC or SERP data).
+
+		// Build a set of keywords where we have a top-10 SERP position.
+		serpRankedSet := make(map[string]bool)
+		if st.SERP != nil {
+			for _, sq := range st.SERP.Queries {
+				if sq.OurPosition >= 0 && sq.OurPosition <= 10 {
+					serpRankedSet[strings.ToLower(sq.Query)] = true
+				}
+			}
+		}
+
 		type gapCandidate struct {
 			keyword string
 			volume  int
@@ -422,7 +434,12 @@ func Run(st *state.State) []MergedFinding {
 			if strings.ToLower(lk.Intent) != "informational" {
 				continue
 			}
-			if gscKeywordSet[strings.ToLower(lk.Keyword)] {
+			kw := strings.ToLower(lk.Keyword)
+			// Skip if we already rank for this keyword (Labs position, SERP, or GSC).
+			if lk.Position > 0 && lk.Position <= 10 {
+				continue
+			}
+			if gscKeywordSet[kw] || serpRankedSet[kw] {
 				continue
 			}
 			if lk.SearchVolume > 50 && lk.Difficulty < 40 {
@@ -475,6 +492,40 @@ func Run(st *state.State) []MergedFinding {
 				Fix:     "Start a link building campaign. Target directories, guest posts, and industry sites. Focus on getting dofollow links from domains with rank > 30.",
 			})
 		}
+	}
+
+	// --- Rule 14: missing-author-signals ---
+	//
+	// Fires on any URL whose crawl findings include "missing-author-byline".
+	// When the page also has GSC impressions we upgrade priority since a
+	// byline fix is cheap and the page is already earning surface area.
+	//
+	// Evidence: signals matrix row "Explicit author byline + credentials"
+	// is marked "likely" for Google AI Overviews and Perplexity
+	// (docs/research/ai-citation-signals-2026.md) — bylines are a
+	// distinct E-E-A-T lever not covered by the existing on-page rules.
+	for _, f := range st.Findings {
+		if f.Rule != "missing-author-byline" {
+			continue
+		}
+		norm := urlnorm.Normalize(f.URL)
+		if norm == "" {
+			continue
+		}
+		mf := MergedFinding{
+			Rule:        "missing-author-signals",
+			URL:         norm,
+			Sources:     []string{"crawl"},
+			CrawlIssues: []string{f.Rule},
+			Verdict:     "medium",
+			Why:         "Page has no visible author byline — E-E-A-T / author-signal lever is absent, which suppresses citation eligibility on Google AI Overviews and Perplexity.",
+			Fix:         "Add a visible author name with credentials, a linked bio page, and Person structured data (sameAs Wikipedia/Wikidata where available).",
+		}
+		if gsc, ok := gscByURL[norm]; ok {
+			mf.GSCData = gsc
+			mf.Sources = []string{"crawl", "gsc"}
+		}
+		results = append(results, mf)
 	}
 
 	// --- Rule 13: broken-backlinks-found ---
@@ -631,6 +682,20 @@ func scoreFinding(f *MergedFinding) (int, string) {
 
 	case f.Rule == "broken-backlinks-found":
 		return 65, "medium"
+
+	// Missing-author scored medium by default; upgraded if the page has
+	// active GSC impressions (a cheap fix on a ranking page).
+	case f.Rule == "missing-author-signals":
+		score := 45
+		if hasGSC && f.GSCData.Impressions > 100 {
+			score = 70
+		} else if hasGSC && f.GSCData.Impressions > 20 {
+			score = 60
+		}
+		if score >= 60 {
+			return score, "medium"
+		}
+		return score, "low"
 	}
 
 	// Default: crawl issues with some GSC data that doesn't match higher tiers.

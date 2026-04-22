@@ -36,12 +36,14 @@ The CLI has working crawl, audit, report (JSON + PDF), provider, auth, GSC, PSI,
 - File-based response caching with TTL
 - Approval gate blocking execution when estimated cost exceeds threshold
 - Project state management (`init`, `status`, `analyze`)
-- Cross-source merge engine with 13 rules:
+- Evidence-backed recommendation ChangeTypes: `ChangeTitle`, `ChangeMeta`, `ChangeH1`, `ChangeH2`, `ChangeSchema`, `ChangeBody`, `ChangeInternalLink`, `ChangeSpeed`, `ChangeBacklink`, `ChangeIndexability`, plus AI-citation levers `ChangeTLDR`, `ChangeListFormat`, `ChangeAuthorByline`, `ChangeFreshness`, `ChangeEntityConsistency` (see `docs/research/ai-citation-signals-2026.md`)
+- Cross-source merge engine with 14 rules:
   - Rules 1–5: crawl + GSC rules (ranking-but-not-clicking, not-indexed, issues-on-high-traffic-page, thin-content-ranking-well, schema-not-showing)
   - Rule 6: PSI + GSC (slow-core-web-vitals)
   - Rules 7–9: SERP-aware (ai-overview-eating-clicks, featured-snippet-opportunity, paa-content-opportunity)
   - Rules 10–11: Labs-aware (easy-win-keyword, informational-content-gap)
   - Rules 12–13: Backlinks-aware (weak-backlink-profile, broken-backlinks-found)
+  - Rule 14: E-E-A-T (missing-author-signals) — emits ChangeAuthorByline + Person schema
 - Priority scoring system (10–100) with automatic sorting by urgency
 - `report pdf` command renders a styled, client-ready PDF (cover, exec summary, per-source "what's broken", recommendations cards, forecast table, optional appendix)
 - Click-lift forecaster (`internal/forecast`) using the Advanced Web Ranking 2024 position→CTR curve, attached to recommendations via `recommendations.AttachForecasts` and exposed as `sageo recommendations forecast`
