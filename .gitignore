@@ -1,7 +1,7 @@
 # Binaries and build artifacts
 build/
 dist/
-sageo
+/sageo
 *.exe
 *.exe~
 *.dll

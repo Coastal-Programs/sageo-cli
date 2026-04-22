@@ -139,7 +139,7 @@ Lock down everything that's built. Fix bugs, test everything, add resilience, sh
 
 ### What it is
 - One markdown file that teaches an AI agent everything about Sageo
-- Shipped in the repo root or agent-skill/ directory
+- Shipped in `.claude/skills/sageo/` (Agent Skills convention) with a flat-file mirror at `.gg/skills/sageo.md`
 - Agent reads it at session start, knows every command and the workflow
 
 ### Contents
@@ -155,7 +155,8 @@ Lock down everything that's built. Fix bugs, test everything, add resilience, sh
   - Round numbers for human output
 
 ### Files
-- New: agent-skill/sageo-skill.md
+- New: `.claude/skills/sageo/SKILL.md` (plus `commands.md`, `workflows.md`, `troubleshooting.md`)
+- New: `.gg/skills/sageo.md`
 
 ---
 
