@@ -25,6 +25,9 @@ type Config struct {
 	GSCClientID          string  `json:"gsc_client_id"`
 	GSCClientSecret      string  `json:"gsc_client_secret"`
 	PSIAPIKey            string  `json:"psi_api_key"`
+	LLMProvider          string  `json:"llm_provider"`
+	AnthropicAPIKey      string  `json:"anthropic_api_key"`
+	OpenAIAPIKey         string  `json:"openai_api_key"`
 }
 
 var (
@@ -87,6 +90,7 @@ func NewDefault() *Config {
 		ActiveProvider:       "local",
 		BaseURL:              "",
 		SERPProvider:         "serpapi",
+		LLMProvider:          "anthropic",
 		ApprovalThresholdUSD: 0,
 	}
 }
@@ -142,6 +146,12 @@ func (c *Config) Set(key, value string) error {
 		c.GSCClientSecret = value
 	case "psi_api_key", "psi-api-key":
 		c.PSIAPIKey = value
+	case "llm_provider", "llm-provider":
+		c.LLMProvider = value
+	case "anthropic_api_key", "anthropic-api-key":
+		c.AnthropicAPIKey = value
+	case "openai_api_key", "openai-api-key":
+		c.OpenAIAPIKey = value
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -177,6 +187,12 @@ func (c *Config) Get(key string) (string, error) {
 		return redact(c.GSCClientSecret), nil
 	case "psi_api_key", "psi-api-key":
 		return redact(c.PSIAPIKey), nil
+	case "llm_provider", "llm-provider":
+		return c.LLMProvider, nil
+	case "anthropic_api_key", "anthropic-api-key":
+		return redact(c.AnthropicAPIKey), nil
+	case "openai_api_key", "openai-api-key":
+		return redact(c.OpenAIAPIKey), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}
@@ -198,6 +214,9 @@ func (c *Config) Redacted() map[string]any {
 		"gsc_client_id":          redact(c.GSCClientID),
 		"gsc_client_secret":      redact(c.GSCClientSecret),
 		"psi_api_key":            redact(c.PSIAPIKey),
+		"llm_provider":           c.LLMProvider,
+		"anthropic_api_key":      redact(c.AnthropicAPIKey),
+		"openai_api_key":         redact(c.OpenAIAPIKey),
 	}
 }
 
@@ -242,6 +261,15 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SAGEO_PSI_API_KEY"); v != "" {
 		c.PSIAPIKey = v
+	}
+	if v := os.Getenv("SAGEO_LLM_PROVIDER"); v != "" {
+		c.LLMProvider = v
+	}
+	if v := os.Getenv("SAGEO_ANTHROPIC_API_KEY"); v != "" {
+		c.AnthropicAPIKey = v
+	}
+	if v := os.Getenv("SAGEO_OPENAI_API_KEY"); v != "" {
+		c.OpenAIAPIKey = v
 	}
 }
 

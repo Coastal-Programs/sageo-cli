@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/merge"
+	"github.com/jakeschepis/sageo-cli/internal/recommendations"
 	"github.com/jakeschepis/sageo-cli/internal/state"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
@@ -54,6 +55,16 @@ func NewAnalyzeCmd(format *string, verbose *bool) *cobra.Command {
 			st.MergedFindings = raw
 			st.LastAnalysis = time.Now().UTC().Format(time.RFC3339)
 
+			// Generate concrete recommendations from the merged findings
+			// and persist them via upsert so IDs remain stable across runs.
+			recs := merge.GenerateRecommendations(st, findings)
+			recommendations.UpsertRecommendations(st, recs)
+
+			recsByType := map[string]int{}
+			for _, r := range recs {
+				recsByType[string(r.ChangeType)]++
+			}
+
 			// Build history detail.
 			detail := fmt.Sprintf("analyze: %d merged findings", len(findings))
 			if len(findings) > 0 {
@@ -88,12 +99,14 @@ func NewAnalyzeCmd(format *string, verbose *bool) *cobra.Command {
 			backlinksAvailable := st.Backlinks != nil && st.Backlinks.LastRun != ""
 
 			data := map[string]any{
-				"merged_findings_count": len(findings),
-				"top_findings":          top,
-				"gsc_available":         gscAvailable,
-				"serp_available":        serpAvailable,
-				"labs_available":        labsAvailable,
-				"backlinks_available":   backlinksAvailable,
+				"merged_findings_count":   len(findings),
+				"recommendations_count":   len(recs),
+				"recommendations_by_type": recsByType,
+				"top_findings":            top,
+				"gsc_available":           gscAvailable,
+				"serp_available":          serpAvailable,
+				"labs_available":          labsAvailable,
+				"backlinks_available":     backlinksAvailable,
 			}
 			if !gscAvailable {
 				data["gsc_note"] = "GSC data not available — connect GSC for deeper analysis"

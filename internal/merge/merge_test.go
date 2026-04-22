@@ -484,6 +484,26 @@ func TestInformationalContentGap(t *testing.T) {
 	if f := findRule(results, "informational-content-gap"); f != nil {
 		t.Error("informational-content-gap should not fire when keyword is in GSC")
 	}
+
+	// Should NOT fire when Labs position shows we already rank in top 10.
+	st.GSC.TopKeywords = st.GSC.TopKeywords[:1] // remove gap keyword from GSC
+	st.Labs.Keywords[0].Position = 2            // already ranking #2
+	results = Run(st)
+	if f := findRule(results, "informational-content-gap"); f != nil {
+		t.Error("informational-content-gap should not fire when Labs shows top-10 position")
+	}
+
+	// Should NOT fire when SERP data shows we rank in top 10.
+	st.Labs.Keywords[0].Position = 0 // reset Labs position
+	st.SERP = &state.SERPData{
+		Queries: []state.SERPQueryResult{
+			{Query: gapKeyword, OurPosition: 3},
+		},
+	}
+	results = Run(st)
+	if f := findRule(results, "informational-content-gap"); f != nil {
+		t.Error("informational-content-gap should not fire when SERP shows top-10 position")
+	}
 }
 
 // TestMergeWithoutGSC: crawl data + SERP data but NO GSC data.

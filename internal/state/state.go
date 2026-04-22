@@ -120,22 +120,120 @@ type BacklinksData struct {
 	GapDomains            []string `json:"gap_domains,omitempty"`   // top 20 gap domains from backlinks gap analysis
 }
 
+// AEOResponseResult is a single engine's response for a prompt.
+type AEOResponseResult struct {
+	Engine    string    `json:"engine"`
+	ModelName string    `json:"model_name"`
+	Response  string    `json:"response"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// AEOPromptResult stores all engine responses captured for a single prompt.
+type AEOPromptResult struct {
+	Prompt    string              `json:"prompt"`
+	Results   []AEOResponseResult `json:"results"`
+	FetchedAt string              `json:"fetched_at"`
+}
+
+// AEOData holds AEO LLM response history saved to state.
+type AEOData struct {
+	LastRun   string            `json:"last_run,omitempty"`
+	Responses []AEOPromptResult `json:"responses,omitempty"`
+}
+
+// LocalMentionMatch mirrors internal/aeo/mentions.Match for on-disk storage.
+// Defined here to avoid import cycles (mentions imports state for
+// AEOResponseResult).
+type LocalMentionMatch struct {
+	Engine    string   `json:"engine"`
+	ModelName string   `json:"model_name"`
+	Prompt    string   `json:"prompt"`
+	Term      string   `json:"term"`
+	Count     int      `json:"count"`
+	Contexts  []string `json:"contexts,omitempty"`
+}
+
+// TopPageEntry is a page that AI engines cite for a given term.
+type TopPageEntry struct {
+	URL      string  `json:"url"`
+	Domain   string  `json:"domain,omitempty"`
+	Mentions int     `json:"mentions"`
+	Share    float64 `json:"share,omitempty"`
+}
+
+// MentionsData holds brand mention data, both locally detected (Layer A) and
+// sourced from the DataForSEO LLM Mentions API (Layer B), keyed by term.
+type MentionsData struct {
+	Term         string              `json:"term"`
+	LocalMatches []LocalMentionMatch `json:"local_matches,omitempty"`
+	DomainShare  map[string]float64  `json:"domain_share,omitempty"`
+	TopPages     []TopPageEntry      `json:"top_pages,omitempty"`
+	FetchedAt    time.Time           `json:"fetched_at"`
+}
+
 // State is the single project file the AI reads and writes.
 type State struct {
-	Site           string          `json:"site"`
-	Initialized    string          `json:"initialized"`
-	LastCrawl      string          `json:"last_crawl,omitempty"`
-	Score          float64         `json:"score,omitempty"`
-	PagesCrawled   int             `json:"pages_crawled,omitempty"`
-	Findings       []Finding       `json:"findings,omitempty"`
-	MergedFindings json.RawMessage `json:"merged_findings,omitempty"`
-	LastAnalysis   string          `json:"last_analysis,omitempty"`
-	GSC            *GSCData        `json:"gsc,omitempty"`
-	PSI            *PSIData        `json:"psi,omitempty"`
-	SERP           *SERPData       `json:"serp,omitempty"`
-	Labs           *LabsData       `json:"labs,omitempty"`
-	Backlinks      *BacklinksData  `json:"backlinks,omitempty"`
-	History        []HistoryEntry  `json:"history,omitempty"`
+	Site            string           `json:"site"`
+	Initialized     string           `json:"initialized"`
+	LastCrawl       string           `json:"last_crawl,omitempty"`
+	Score           float64          `json:"score,omitempty"`
+	PagesCrawled    int              `json:"pages_crawled,omitempty"`
+	Findings        []Finding        `json:"findings,omitempty"`
+	MergedFindings  json.RawMessage  `json:"merged_findings,omitempty"`
+	LastAnalysis    string           `json:"last_analysis,omitempty"`
+	GSC             *GSCData         `json:"gsc,omitempty"`
+	PSI             *PSIData         `json:"psi,omitempty"`
+	SERP            *SERPData        `json:"serp,omitempty"`
+	Labs            *LabsData        `json:"labs,omitempty"`
+	Backlinks       *BacklinksData   `json:"backlinks,omitempty"`
+	AEO             *AEOData         `json:"aeo,omitempty"`
+	BrandTerms      []string         `json:"brand_terms,omitempty"`
+	Mentions        []MentionsData   `json:"mentions,omitempty"`
+	Recommendations []Recommendation `json:"recommendations,omitempty"`
+	History         []HistoryEntry   `json:"history,omitempty"`
+
+	// PipelineCursor records the last stage that completed successfully in
+	// an autonomous `sageo run` invocation. `--resume` picks up after this.
+	PipelineCursor string `json:"pipeline_cursor,omitempty"`
+	// PipelineRuns is an audit log of autonomous pipeline invocations.
+	PipelineRuns []PipelineRun `json:"pipeline_runs,omitempty"`
+}
+
+// PipelineRun records a single autonomous pipeline execution.
+type PipelineRun struct {
+	StartedAt    time.Time `json:"started_at"`
+	CompletedAt  time.Time `json:"completed_at"`
+	StagesRun    []string  `json:"stages_run,omitempty"`
+	TotalCostUSD float64   `json:"total_cost_usd"`
+	Outcome      string    `json:"outcome"` // success | partial | failed
+	FailedStage  string    `json:"failed_stage,omitempty"`
+	Error        string    `json:"error,omitempty"`
+}
+
+// UpsertRecommendations inserts or replaces recommendations by ID.
+// If an incoming recommendation has no CreatedAt, it is set to now.
+func (s *State) UpsertRecommendations(recs []Recommendation) {
+	now := time.Now().UTC()
+	for _, r := range recs {
+		if r.CreatedAt.IsZero() {
+			r.CreatedAt = now
+		}
+		replaced := false
+		for i, existing := range s.Recommendations {
+			if existing.ID == r.ID {
+				// Preserve the original CreatedAt on update.
+				if !existing.CreatedAt.IsZero() {
+					r.CreatedAt = existing.CreatedAt
+				}
+				s.Recommendations[i] = r
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			s.Recommendations = append(s.Recommendations, r)
+		}
+	}
 }
 
 // Path returns the state.json path relative to a working directory.
@@ -248,6 +346,42 @@ func (s *State) Sources() (used []string, missing []string) {
 func (s *State) UpsertPSI(data PSIData) {
 	data.LastRun = time.Now().UTC().Format(time.RFC3339)
 	s.PSI = &data
+}
+
+// UpsertAEOResponses stores AEO LLM results for a prompt, replacing any
+// prior entry for the same prompt (upsert by prompt text).
+func (s *State) UpsertAEOResponses(prompt string, results []AEOResponseResult) {
+	if s.AEO == nil {
+		s.AEO = &AEOData{}
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.AEO.LastRun = now
+	entry := AEOPromptResult{
+		Prompt:    prompt,
+		Results:   results,
+		FetchedAt: now,
+	}
+	for i, existing := range s.AEO.Responses {
+		if existing.Prompt == prompt {
+			s.AEO.Responses[i] = entry
+			return
+		}
+	}
+	s.AEO.Responses = append(s.AEO.Responses, entry)
+}
+
+// UpsertMentions inserts or replaces a MentionsData entry by term.
+func (s *State) UpsertMentions(data MentionsData) {
+	if data.FetchedAt.IsZero() {
+		data.FetchedAt = time.Now().UTC()
+	}
+	for i, existing := range s.Mentions {
+		if existing.Term == data.Term {
+			s.Mentions[i] = data
+			return
+		}
+	}
+	s.Mentions = append(s.Mentions, data)
 }
 
 const maxHistoryEntries = 200

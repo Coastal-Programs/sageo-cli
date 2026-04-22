@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 
 	"github.com/jakeschepis/sageo-cli/internal/audit"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
@@ -10,6 +12,8 @@ import (
 	"github.com/jakeschepis/sageo-cli/internal/provider"
 	_ "github.com/jakeschepis/sageo-cli/internal/provider/local"
 	"github.com/jakeschepis/sageo-cli/internal/report"
+	pdfreport "github.com/jakeschepis/sageo-cli/internal/report/pdf"
+	"github.com/jakeschepis/sageo-cli/internal/state"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
 )
@@ -24,7 +28,71 @@ func NewReportCmd(format *string, verbose *bool) *cobra.Command {
 	cmd.AddCommand(
 		newReportGenerateCmd(format, verbose),
 		newReportListCmd(format, verbose),
+		newReportPDFCmd(format, verbose),
 	)
+	return cmd
+}
+
+func newReportPDFCmd(format *string, _ *bool) *cobra.Command {
+	var (
+		outPath    string
+		appendix   bool
+		logoPath   string
+		brandColor string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "pdf",
+		Short: "Render a styled PDF summary of the audit, recommendations, and forecast",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !state.Exists(".") {
+				return output.PrintCodedError(
+					"NO_PROJECT",
+					"No project initialized \u2014 run sageo init --url <site>",
+					nil, nil,
+					output.Format(*format),
+				)
+			}
+			s, err := state.Load(".")
+			if err != nil {
+				return output.PrintCodedError("STATE_LOAD_FAILED", "failed to load state", err, nil, output.Format(*format))
+			}
+
+			abs, err := filepath.Abs(outPath)
+			if err != nil {
+				return output.PrintCodedError(output.ErrReportWriteFailed, "invalid output path", err, nil, output.Format(*format))
+			}
+			if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to create output dir", err, nil, output.Format(*format))
+			}
+
+			f, err := os.Create(abs)
+			if err != nil {
+				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to create PDF file", err, nil, output.Format(*format))
+			}
+			defer func() { _ = f.Close() }()
+
+			pages, size, err := pdfreport.RenderWithStats(s, f, pdfreport.Options{
+				IncludeAppendix: appendix,
+				LogoPath:        logoPath,
+				BrandColorHex:   brandColor,
+			})
+			if err != nil {
+				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to render PDF", err, nil, output.Format(*format))
+			}
+
+			return output.PrintSuccess(map[string]any{
+				"path":       abs,
+				"pages":      pages,
+				"size_bytes": size,
+			}, nil, output.Format(*format))
+		},
+	}
+
+	cmd.Flags().StringVar(&outPath, "output", "./sageo-report.pdf", "Path to write the PDF to")
+	cmd.Flags().BoolVar(&appendix, "appendix", false, "Include raw data appendix tables")
+	cmd.Flags().StringVar(&logoPath, "logo", "", "Optional path to a PNG/JPG logo for the cover")
+	cmd.Flags().StringVar(&brandColor, "brand-color", "", "Brand colour hex (default #1E40AF)")
 	return cmd
 }
 
