@@ -1,219 +1,160 @@
-# Sageo CLI — Agent Notes
+# Sageo CLI: Agent Notes
+
+Notes for an AI coding agent working in this repository. Keep it accurate; keep it tight.
 
 ## Scope
 
-The CLI has working crawl, audit, report (JSON + HTML), provider, auth, GSC, PSI, SERP, AEO (multi-model + mentions), GEO, Labs, backlinks, merge, recommendations (merge → draft → forecast), LLM drafting (Anthropic/OpenAI), click-lift forecasting, autonomous pipeline (`sageo run`), and opportunities services.
+Working features, grouped by area:
 
-### Implemented
-- **Autonomous run** — `sageo run <url>` drives the full pipeline end-to-end in a single command: crawl → audit → GSC → PSI → Labs → SERP → backlinks → AEO fan-out → mentions scan → merge → recommendations → LLM draft → forecast. Flags: `--budget`, `--skip`, `--only`, `--max-pages`, `--prompts`, `--dry-run`, `--approve`, `--resume`. Orchestrated by `internal/pipeline`; state persisted between stages so a failure can be resumed with `--resume`.
-- BFS website crawler with depth/page limits and concurrent fetching
-- SEO audit engine with rule-based checks and scoring
-- JSON report generation and storage
-- Provider abstraction with built-in `local` HTTP fetcher
-- Full crawl → audit → report pipeline
-- Google Search Console integration (sites list, query pages/keywords, opportunity seeds)
-- OAuth2 authentication flow for GSC with token persistence and auto-refresh
-- PageSpeed Insights integration (Core Web Vitals: LCP, CLS, FCP, TBT, SI)
-- PSI auto-persistence to state.json with upsert by URL+strategy
-- PSI auth cascade: API key → GSC OAuth token → unauthenticated
-- SERP analysis adapters (SerpAPI and DataForSEO)
-- SERP feature detection (9 types: Featured Snippets, PAA, AI Overviews, Local Pack, Knowledge Graph, Top Stories, Inline Videos, Inline Shopping, Inline Images)
-- SERP batch analysis via DataForSEO Standard queue ($0.0006/keyword, up to 100 keywords)
-- SERP data persistence to state.json (features, related questions, top domains, our position)
-- AEO and GEO command groups backed by DataForSEO
-- Brand mention detection — Layer A (offline scan of stored AEO responses for brand terms) and Layer B (DataForSEO LLM Mentions API: search, top-pages, top-domains, aggregated-metrics) via `sageo aeo mentions`
-- Project-level brand terms persisted in `state.BrandTerms` (set via `sageo init --brand "Name,alias"`); MentionsData upsert-by-term (including `aeo models` for the live model catalogue, cached on disk for 7 days)
-- Multi-model AEO responses fan-out (`sageo aeo responses --all` / `--models` / `--tier`): parallel engine queries bounded by `--concurrency`, per-row error surfacing, summed cost gate, and brand-mention storage in state under `state.AEO.Responses` (upsert by prompt)
-- Labs command group (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`, `bulk-difficulty`)
-- Labs keyword data persistence to state.json (difficulty, volume, intent, position)
-- Labs bulk keyword difficulty with `--from-gsc` flag to auto-load keywords from state
-- Labs competitor data persistence to state.json
-- Backlinks API integration (`summary`, `list`, `referring-domains`, `competitors`, `gap`)
-- Backlinks gap auto-loads competitors from state.json when `--competitors` not provided
-- Backlink data persistence to state.json (summary metrics + gap domains)
-- Cost-aware execution contracts (`estimated_cost`, `requires_approval`, `cached`, `source`, `fetched_at`)
-- `--dry-run` support for all paid workflows
-- File-based response caching with TTL
-- Approval gate blocking execution when estimated cost exceeds threshold
-- Project state management (`init`, `status`, `analyze`)
-- Evidence-backed recommendation ChangeTypes: `ChangeTitle`, `ChangeMeta`, `ChangeH1`, `ChangeH2`, `ChangeSchema`, `ChangeBody`, `ChangeInternalLink`, `ChangeSpeed`, `ChangeBacklink`, `ChangeIndexability`, plus AI-citation levers `ChangeTLDR`, `ChangeListFormat`, `ChangeAuthorByline`, `ChangeFreshness`, `ChangeEntityConsistency` (see `docs/research/ai-citation-signals-2026.md`)
-- Cross-source merge engine with 14 rules:
-  - Rules 1–5: crawl + GSC rules (ranking-but-not-clicking, not-indexed, issues-on-high-traffic-page, thin-content-ranking-well, schema-not-showing)
-  - Rule 6: PSI + GSC (slow-core-web-vitals)
-  - Rules 7–9: SERP-aware (ai-overview-eating-clicks, featured-snippet-opportunity, paa-content-opportunity)
-  - Rules 10–11: Labs-aware (easy-win-keyword, informational-content-gap)
-  - Rules 12–13: Backlinks-aware (weak-backlink-profile, broken-backlinks-found)
-  - Rule 14: E-E-A-T (missing-author-signals) — emits ChangeAuthorByline + Person schema
-- Priority scoring system (10–100) with automatic sorting by urgency
-- `report html` command renders a self-contained, styled HTML file (cover, exec summary, per-source "what's broken", recommendation cards, sortable forecast table, optional appendix). Users print-to-PDF via the browser (Cmd/Ctrl+P). `report pdf` is preserved as a deprecated alias.
-- Click-lift forecaster (`internal/forecast`) using the Advanced Web Ranking 2024 position→CTR curve, attached to recommendations via `recommendations.AttachForecasts` and exposed as `sageo recommendations forecast`
-- Merge rules emit concrete `Recommendation` objects (title, meta, H1, H2, schema, body, speed, backlink, indexability changes) persisted to state via `recommendations.UpsertRecommendations`
-- `sageo recommendations list` command with `--url`, `--type`, `--top`, `--format` flags
-- Interactive login flow (`sageo login`) for GSC OAuth and DataForSEO credentials
-- Default locale: Australia (location_code 2036, language `en`) for all DataForSEO calls
-- URL normalisation utilities for cross-source data joining
-- Opportunity detection merging GSC + optional SERP evidence (legacy, superseded by merge engine)
-- LLM provider abstraction (`internal/llm`) with Anthropic (Messages API, `claude-sonnet-4-6`) and OpenAI (Chat Completions, `gpt-5`) drivers, used by `sageo recommendations draft` to fill `RecommendedValue` with concrete copy (titles, meta descriptions, H1/H2s, body paragraphs, JSON-LD schema) validated against SERP length limits with retry
+- **Data collection.** Crawl, audit, GSC (OAuth2), PSI, SERP (SerpAPI + DataForSEO), Labs, backlinks, multi-model AEO fan-out, brand mentions (local scan + DataForSEO LLM Mentions API).
+- **Analysis.** Cross-source merge engine with 14 rules producing evidence-backed `Recommendation` objects. Priority scoring 10 to 100.
+- **Recommendations pipeline.** LLM drafter (Anthropic, OpenAI) fills `recommended_value`. Review gate (`recommendations review`) requires human approve/edit/reject before anything ships. Forecaster (`recommendations forecast`) attaches a priority tier and calibrated click-delta range.
+- **Orchestration.** `sageo run <url>` drives crawl, audit, GSC, PSI, Labs, SERP, backlinks, AEO, mentions, merge, recommend, draft, forecast, review-gate under a single `--budget` ceiling with `--skip`, `--only`, `--resume`, `--approve`, `--dry-run`.
+- **Presentation.** Self-contained HTML report (`report html`). `report pdf` is a deprecated alias routing to HTML. Users print to PDF via the browser (Cmd/Ctrl+P).
+- **History + learning.** Per-run snapshots under `.sageo/snapshots/<ts>/`. `snapshots list|show|path|prune`. `compare` diffs two snapshots and writes observed-lift records to `.sageo/calibration.json`, which the forecaster consumes.
+- **Infrastructure.** JSON envelope output, cost estimation, approval gate, on-disk cache with TTL, `--dry-run` on every paid command, per-project state at `.sageo/state.json` with `BrandTerms` set by `sageo init --brand`.
 
 ### Do now
-- Keep command architecture stable
-- Maintain JSON-first output contract
-- Preserve config and output consistency
-- Extend audit rules as needed
-- Add new providers via the registry pattern
-- Add new SERP providers behind the `serp.Provider` interface
-- Extend merge rules when new data sources are added
+
+- Keep the command hierarchy stable.
+- Maintain the JSON envelope output contract.
+- Extend audit rules, merge rules, and ChangeTypes as needed (each ChangeType must cite a section in `docs/research/ai-citation-signals-2026.md`).
+- Add new providers via the existing registry patterns (`internal/provider`, `internal/llm`, `internal/serp`).
+- Never let LLM drafts bypass the review gate into a client-facing artefact. The review gate is the contract.
+- Every paid command supports `--dry-run` and includes the paid-metadata keys.
 
 ### Do not do without explicit instructions
-- Add multiple paid SEO providers at once
-- Embed OpenAI/Anthropic inside the CLI by default
-- Change the output envelope contract incompatibly
-- Restructure the command hierarchy unnecessarily
+
+- Add multiple paid SEO providers at once.
+- Change the output envelope contract incompatibly.
+- Restructure the command hierarchy.
+- Introduce live network calls into unit tests. Use `internal/common/testutil` fakes or `//go:build integration`.
+- Hand-edit `.sageo/state.json` or `.sageo/snapshots/`. The CLI owns the schema.
 
 ## Conventions
 
-- Language: Go
-- CLI framework: Cobra
-- Entry point: `cmd/sageo/main.go`
-- Root command wiring: `internal/cli/root.go`
-- Command files: `internal/cli/commands/*.go`
-- Config package: `internal/common/config`
-- Cost package: `internal/common/cost`
-- Cache package: `internal/common/cache`
-- URL normalisation: `internal/common/urlnorm`
-- Retry utilities: `internal/common/retry`
-- Output package: `pkg/output`
-- Provider package: `internal/provider`
-- Auth package: `internal/auth`
-- GSC package: `internal/gsc`
-- PSI package: `internal/psi`
-- AEO mentions (Layer A — local): `internal/aeo/mentions`
-- AEO LLM Mentions API (Layer B — DataForSEO): `internal/aeo/llmmentions`
-- SERP package: `internal/serp` (adapters: `internal/serp/serpapi`, `internal/serp/dataforseo`)
-- DataForSEO shared client: `internal/dataforseo`
-- Opportunities package: `internal/opportunities`
-- LLM package: `internal/llm` (drivers: `internal/llm/anthropic`, `internal/llm/openai`; side-effect registry: `internal/llm/providers`)
-- Backlinks package: `internal/backlinks`
-- Merge engine: `internal/merge`
-- Recommendations: `internal/recommendations` (types aliased from `internal/state` to avoid import cycle)
-- State persistence: `internal/state`
-- Pipeline orchestrator: `internal/pipeline`
-- Domain packages: `internal/crawl`, `internal/audit`, `internal/report`, `internal/report/html`
-- Forecast package: `internal/forecast` (position→CTR curve, swappable via `SetCurve`)
-- Test utilities: `internal/common/testutil` (fake HTTP servers for unit tests)
+- **Language.** Go.
+- **CLI framework.** Cobra.
+- **Entry point.** `cmd/sageo/main.go`.
+- **Root wiring.** `internal/cli/root.go`.
+- **Command files.** `internal/cli/commands/*.go`, one file per top-level command (plus split files for large groups).
+- **Domain packages.** `internal/crawl`, `internal/audit`, `internal/gsc`, `internal/psi`, `internal/serp` (adapters `internal/serp/serpapi`, `internal/serp/dataforseo`), `internal/dataforseo` (shared client), `internal/backlinks`, `internal/aeo/mentions` (local Layer A), `internal/aeo/llmmentions` (Layer B DataForSEO), `internal/opportunities`, `internal/merge`, `internal/recommendations`, `internal/forecast`, `internal/compare`, `internal/pipeline`.
+- **State.** `internal/state` (state.go, recommendations.go, snapshot.go). `Recommendation` is defined here so it can be embedded without import cycles; `internal/recommendations` re-exports via type aliases.
+- **LLM.** `internal/llm` (interface, registry), drivers `internal/llm/anthropic`, `internal/llm/openai`, side-effect registry `internal/llm/providers`.
+- **Provider abstraction.** `internal/provider`, built-in fetcher `internal/provider/local`.
+- **Auth.** `internal/auth` (GSC OAuth token persistence + refresh).
+- **Infrastructure.** `internal/common/config`, `internal/common/cost`, `internal/common/cache`, `internal/common/urlnorm`, `internal/common/retry`, `internal/common/testutil`.
+- **Presentation.** `internal/report` (JSON reports), `internal/report/html` (self-contained HTML).
+- **Output.** `pkg/output` (envelope, error codes).
+- **Version.** `internal/version`.
 
-## Test Safety
+## Output contract
 
-Strict separation between unit and integration tests:
+Default output is JSON. Envelope shape:
 
-- **Unit tests** (default `go test ./...` / `make test`): zero network, zero cost. Use `httptest.NewServer` via `internal/common/testutil` factories, or a mock `HTTPClient`. No build tag.
-- **Integration tests** (`make test-integration`): may hit paid APIs. MUST start with `//go:build integration` and guard every test function with `if os.Getenv("SAGEO_LIVE_TESTS") != "1" { t.Skip(...) }`. Named `*_integration_test.go`.
-- `scripts/check-no-live-tests.sh` (wired via `make check-tests`, invoked by `make test`) enforces the rule.
-- See `TESTING.md` for the full convention and copy-paste templates.
+```
+{ "success": bool, "data": ..., "error": {...} | null, "metadata": {...} }
+```
 
-## Output Contract
+Paid commands add to `metadata`:
+- `estimated_cost` (USD float)
+- `currency` (usually `"USD"`)
+- `requires_approval` (bool)
+- `cached` (bool)
+- `source` (`"live"` | `"cache"` | `"dry-run"`)
+- `fetched_at` (RFC3339)
+- `dry_run` (bool)
 
-Prefer envelope-style structured output:
-- `success`
-- `data`
-- `error`
-- `metadata`
+Command-specific shapes:
 
-Default command output should remain `json` for automation and agent usage.
-
-Paid commands include additional metadata keys:
-- `estimated_cost`, `currency`, `requires_approval`, `cached`, `source`, `fetched_at`, `dry_run`
-
-Command-specific payload shapes:
-- **Multi-model AEO** (`aeo responses --all` / `--models`): `data.results[]` — one row per engine/model with `{ engine, model, response, brand_mentions, error, cost }`; `metadata.estimated_cost` is the summed cost across all rows.
-- **Recommendations list / draft** (`recommendations list`, `recommendations draft`): `data.recommendations[]` where each item matches `state.Recommendation` (`id`, `target_url`, `target_query`, `change_type`, `current_value`, `recommended_value`, `rationale`, `evidence[]`, `priority`, `effort_minutes`, `forecasted_lift`, `merged_finding_id`, `created_at`).
-- **Forecast** (`recommendations forecast`): `data.forecasts[]` where each item is `{ recommendation_id, target_url, change_type, forecast: { estimated_monthly_clicks_delta, confidence_low, confidence_high, method } }`.
-- **HTML report** (`report html`): non-envelope side effect — writes a self-contained HTML file to `--output`; stdout emits `{ success, data: { path, size_bytes } }`. Users produce a PDF via browser print-to-PDF (Cmd/Ctrl+P). `report pdf` remains as a deprecated alias routed to the HTML renderer.
+- **Multi-model AEO** (`aeo responses --all|--models|--tier`): `data.results[]` with `{ engine, model, response, brand_mentions, error, cost }`. `metadata.estimated_cost` is the summed cost.
+- **Recommendations list / draft**: `data.recommendations[]` where each item matches `state.Recommendation` (`id`, `target_url`, `target_query`, `change_type`, `current_value`, `recommended_value`, `rationale`, `evidence[]`, `priority`, `effort_minutes`, `forecasted_lift`, `merged_finding_id`, `created_at`, `review_status`, `reviewed_at`, `reviewed_by`, `review_notes`, `original_draft`).
+- **Forecast** (`recommendations forecast`): `data.top[]` with `{ id, target_url, change_type, priority_tier (high|medium|low|unknown), point_estimate, range_low, range_high, raw_estimate, calibrated (bool), confidence_label, caveats[], calibration_samples }`. Aggregates: `tier_counts`, `estimated_range_low`, `estimated_range_high`. The embedded `Forecast` struct on each recommendation has `raw_estimate`, `raw_confidence_low`, `raw_confidence_high`, optional `calibrated_*`, `priority_tier`, `confidence_label`, `caveats[]`, `method`, `calibration_samples`. Read `priority_tier` as the primary signal.
+- **Analyze** (`analyze`): `metadata.review_status_counts: { pending, approved, edited, rejected }`.
+- **Compare** (`compare`): structured deltas (`GSCDelta`, `PSIDelta`, `SERPDelta`, `AEODelta`, `BacklinksDelta`, `AuditDelta`, `RecommendationsDelta`) plus `metadata.causation_caveats[]`. `--output-html` also writes a self-contained HTML diff.
+- **HTML report** (`report html`): non-envelope side effect. Writes a file; stdout emits `{ success, data: { path, size_bytes } }`.
 
 ## Configuration
 
-Default config path:
-- `~/.config/sageo/config.json`
+Default config path: `~/.config/sageo/config.json`. Override with `SAGEO_CONFIG` (absolute `.json` path).
 
-Optional override:
-- `SAGEO_CONFIG` (absolute `.json` path)
+Supported env overrides (see `internal/common/config/config.go`):
 
-Supported env overrides:
-- `SAGEO_PROVIDER`
-- `SAGEO_API_KEY`
-- `SAGEO_BASE_URL`
-- `SAGEO_ORGANIZATION_ID`
-- `SAGEO_SERP_PROVIDER`
-- `SAGEO_SERP_API_KEY`
-- `SAGEO_DATAFORSEO_LOGIN`
-- `SAGEO_DATAFORSEO_PASSWORD`
+- `SAGEO_PROVIDER`, `SAGEO_API_KEY`, `SAGEO_BASE_URL`, `SAGEO_ORGANIZATION_ID`
+- `SAGEO_SERP_PROVIDER`, `SAGEO_SERP_API_KEY`
+- `SAGEO_DATAFORSEO_LOGIN`, `SAGEO_DATAFORSEO_PASSWORD` (also used by Backlinks, Labs, AEO, GEO)
 - `SAGEO_APPROVAL_THRESHOLD_USD`
-- `SAGEO_GSC_PROPERTY`
-- `SAGEO_GSC_CLIENT_ID`
-- `SAGEO_GSC_CLIENT_SECRET`
+- `SAGEO_GSC_PROPERTY`, `SAGEO_GSC_CLIENT_ID`, `SAGEO_GSC_CLIENT_SECRET`
 - `SAGEO_PSI_API_KEY`
-- `SAGEO_LLM_PROVIDER` (default `anthropic`)
-- `SAGEO_ANTHROPIC_API_KEY`
-- `SAGEO_OPENAI_API_KEY`
+- `SAGEO_LLM_PROVIDER` (default `anthropic`), `SAGEO_ANTHROPIC_API_KEY`, `SAGEO_OPENAI_API_KEY`
 
-> Backlinks API uses the existing DataForSEO credentials (`SAGEO_DATAFORSEO_LOGIN` / `SAGEO_DATAFORSEO_PASSWORD`) — no new env vars needed.
+Default DataForSEO locale is Australia (location_code 2036, language `en`).
 
-## Validation Commands
+## Validation commands
 
-Run after changes (safe — no network, no cost):
+Safe (no network, no cost):
 
 ```bash
-go test ./...
 go vet ./...
-```
-
-For full quality gate (still safe — unit tests only):
-
-```bash
+go test ./...
 make fmt
 make vet
 make test
 make lint
 ```
 
-Opt-in live API coverage (costs money — requires credentials):
+Opt-in live API coverage (costs money, requires credentials):
 
 ```bash
 make test-integration   # SAGEO_LIVE_TESTS=1 go test -tags integration ./...
-make test-all           # unit + integration
+make test-all           # unit then integration
 ```
 
-## Local CLI Install/Update
+`make test` runs `scripts/check-no-live-tests.sh` first via `make check-tests`; it refuses if any non-integration test references `http.DefaultClient`, `http.Get(`, etc. See TESTING.md.
 
-Use a single global command (`sageo`) by installing from source:
+## Local CLI install
 
 ```bash
 make install
 ```
 
-If `sageo` is not found after install, ensure `~/go/bin` is on PATH and reload shell config.
+Installs via `go install`. Ensure `$(go env GOPATH)/bin` (typically `~/go/bin`) is on `PATH`.
 
-## Lightweight Release Policy
+## Release policy
 
-Default release flow should stay lightweight (avoid costly multi-platform packaging unless explicitly requested):
+Default flow is lightweight; avoid multi-platform packaging unless explicitly requested.
 
-1. Run fast checks:
-   - `go vet ./...`
-   - `go test -race ./...`
-2. Commit and push to `main`
-3. Create/push a semver tag (patch bump)
-4. Create a GitHub Release from the tag **without** attached binary assets
+1. `go vet ./...`
+2. `go test -race ./...`
+3. Commit and push to `main`.
+4. Create and push a semver tag (patch bump by default).
+5. Create a GitHub Release from the tag **without** attached binary assets.
 
-Only run `make release` when explicitly asked to produce packaged binaries.
+Run `make release` only when asked to produce packaged binaries.
 
-## Commit Message Quality Policy
+## Commit message policy
 
-Every commit should include a clear summary of what changed in the project:
+Every commit must summarise what changed.
 
-- Subject line: one line, starts with `Add`, `Update`, `Fix`, `Remove`, or `Refactor`
-- Body: short bullet points grouped under relevant sections (omit empty sections):
-  - `Added:`
-  - `Updated:`
-  - `Fixed:`
-  - `Docs:`
-- Bullets must describe concrete changes (file/function/behavior), not generic wording.
+- Subject line: one line, starts with `Add`, `Update`, `Fix`, `Remove`, or `Refactor`.
+- Body: short bullets grouped under `Added:`, `Updated:`, `Fixed:`, `Docs:`. Omit empty sections.
+- Bullets name concrete files, functions, or behaviours. No generic wording.
+
+## Skills
+
+Sageo ships agent skills in two locations:
+
+- `.claude/skills/` for Claude-family agents (e.g. `.claude/skills/sageo/`).
+- `.gg/skills/` for the GG tooling (e.g. `.gg/skills/sageo.md`).
+
+Keep both in sync when the command surface changes.
+
+## Honest framing rules
+
+These rules bind any output the agent produces on behalf of sageo, in reports, recommendations, commit messages, or user-facing text.
+
+1. **Never quote a specific click number.** Always present forecasts as a priority tier (`high`, `medium`, `low`, `unknown`) plus a range. The tier is the primary signal; the range is supporting context.
+2. **Surface caveats.** When volume is low, history is short, or an algorithm update is known-recent, say so in the same breath as the forecast. The `Forecast.Caveats` field exists for this reason: propagate it.
+3. **Do not claim causation from observational data.** `compare` output is correlational. Ranking changes between two snapshots do not prove any recommendation caused them.
+4. **LLM drafts are pending by default.** Any `recommended_value` drafted by the LLM carries `review_status = pending_review`. Do not treat pending drafts as approved copy. Do not include rejected drafts in reports.
+5. **Cite the research section that supports a recommendation.** When presenting a ChangeType to a user, name the section in `docs/research/ai-citation-signals-2026.md` that underwrites it (e.g. "ChangeTLDR: Growth Memo direct-answer study, B.1.2"). No anonymous claims.

@@ -1,416 +1,190 @@
-# Sageo CLI — Architecture
+# Sageo Architecture
 
-## Overview
+How the code is laid out and how a single run flows through it. Written for an engineer (human or AI) about to change something.
 
-Sageo CLI is a Go + Cobra single-binary command-line tool for SEO, AEO, and GEO operations. It crawls websites, runs rule-based SEO audits, integrates Google Search Console, fetches SERP data with feature detection (AI Overviews, Featured Snippets, PAA), runs DataForSEO Labs keyword intelligence, performs backlink analysis, measures Core Web Vitals via PageSpeed Insights, queries live AI engines (ChatGPT, Claude, Gemini, Perplexity) for brand-visibility tracking, merges all signals through a 13-rule merge engine to produce prioritised recommendations, drafts concrete replacement copy via Anthropic or OpenAI, forecasts click-lift per recommendation, and can drive the full pipeline end-to-end through `sageo run`. All paid API calls are cost-estimated, approval-gated, cacheable, and budget-bounded. Default locale is Australia (location_code 2036, language `en`).
-
-## Data Flow
+## High-level shape
 
 ```
-Crawl → Audit (+ auto PSI) → GSC → PSI → SERP (features) → Labs (difficulty/intent) → Backlinks → AEO (multi-model fan-out + mentions) → Merge (13 rules) → Recommendations → LLM Draft (titles/meta/H1/H2/schema/body) → Forecast (click-lift) → State → PDF Report
+                        ┌─────────────────────────────────┐
+                        │   cmd/sageo/main.go (Cobra)     │
+                        └───────────────┬─────────────────┘
+                                        │
+                        ┌───────────────▼─────────────────┐
+                        │  internal/cli/commands/*.go     │
+                        │  (thin handlers, flag parsing)  │
+                        └───────────────┬─────────────────┘
+                                        │
+        ┌───────────────┬───────────────┼───────────────┬───────────────┐
+        │               │               │               │               │
+        ▼               ▼               ▼               ▼               ▼
+  data collection   analysis      recommendations   presentation   infrastructure
+  ───────────────   ────────      ───────────────   ────────────   ──────────────
+   crawl            merge          recommendations    report         state
+   audit                           forecast           report/html    common/config
+   gsc                             compare (diff)                    common/cost
+   psi                                                               common/cache
+   serp                                                              common/retry
+   labs                                                              common/urlnorm
+   backlinks                                                         common/testutil
+   aeo/mentions                                                      provider
+   aeo/llmmentions                                                   auth
+   opportunities                                                     llm + drivers
+                                                                     dataforseo
+                                                                     pipeline (orchestrator)
+                                                                     version
+
+  Data flow of `sageo run`:
+
+  ┌─────┐   ┌───────┐   ┌─────┐   ┌─────┐   ┌──────┐   ┌────────┐   ┌─────┐
+  │crawl├──►│ audit ├──►│ GSC ├──►│ PSI ├──►│ SERP ├──►│  Labs  ├──►│ AEO │
+  └─────┘   └───────┘   └─────┘   └─────┘   └──────┘   └────────┘   └──┬──┘
+                                                                       │
+  ┌────────┐   ┌──────────┐   ┌────────┐   ┌───────┐   ┌─────────┐   ┌─▼──────┐
+  │ merge  ◄───┤mentions  │◄──┤forecast│◄──┤drafter│◄──┤recommend│◄──┤backlnks│
+  └───┬────┘   └──────────┘   └────────┘   └───────┘   └─────────┘   └────────┘
+      │
+      ▼
+  ┌───────────────┐   ┌────────────────┐   ┌──────────────────────────────┐
+  │ review gate   ├──►│ snapshot write ├──►│ .sageo/snapshots/<ts>/ +     │
+  │ (TUI or skip) │   │ (atomic)       │   │ state.json copy              │
+  └───────────────┘   └────────────────┘   └──────────────────────────────┘
 ```
 
-`sageo run <url>` orchestrates every stage in order via `internal/pipeline`, persisting state between stages so `--resume` can pick up from the last successful stage. Individual stages remain available as dedicated commands.
-
-## Recommendation Lifecycle
-
-A single action item travels through four shapes:
-
-1. **`MergedFinding`** — emitted by `internal/merge` when one of the 13 cross-source rules fires. Carries sources, evidence, priority score, rule ID.
-2. **`Recommendation`** — `internal/recommendations` converts each finding into one or more atomic `state.Recommendation` objects (one per `ChangeType`: `title`, `meta_description`, `h1`, `h2_add`, `schema_add`, `body_expand`, `internal_link_add`, `speed_fix`, `backlink_outreach`, `indexability_fix`). The recommendation has `TargetURL`, `CurrentValue`, an empty `RecommendedValue`, `Rationale`, `Evidence`, `Priority`, `EffortMinutes`, and a stable hashed `ID`. Persisted via `recommendations.UpsertRecommendations`.
-3. **Drafted** — `sageo recommendations draft` loops over recommendations with empty `RecommendedValue`, calls the configured LLM driver (Anthropic or OpenAI via `internal/llm`), validates output against SERP length caps (title ≤ 60 chars, meta ≤ 160 chars, etc.) with retry, and writes the copy back to state.
-4. **Forecasted** — `sageo recommendations forecast` (or `recommendations.AttachForecasts`) runs `internal/forecast.Estimate` for each recommendation, using `forecast.TargetPositionFor` to project a realistic post-change position and the AWR 2024 position→CTR curve to compute a monthly click delta with low/high confidence bounds. Stored on `Recommendation.ForecastedLift`.
-
-The PDF renderer in `internal/report/pdf` reads the final decorated recommendations from state and lays them out as client-ready cards with the forecast table.
-
-## Cost Control
-
-Every paid code path flows through the same four gates:
-
-- **Estimation** — `internal/common/cost.BuildEstimate` computes a USD estimate before any HTTP call. Surfaces as `estimated_cost` in output metadata.
-- **Approval gate** — `cost.EvaluateApproval` compares the estimate to `approval_threshold_usd`. Over-threshold calls return `APPROVAL_REQUIRED` without executing.
-- **`--budget` cap** — `sageo run` maintains a running total across all stages and aborts the next stage if its estimate would exceed the budget.
-- **`--dry-run`** — every paid command (including `sageo run` and `recommendations draft`) accepts `--dry-run`, which returns the estimate without making paid calls.
-- **Caching** — `internal/common/cache` persists responses to `~/.config/sageo/cache/<provider>/<hash>.json` with TTL. Cache hits set `cached: true` in metadata and bypass charges entirely.
-- **Test isolation** — unit tests (`make test`) are guaranteed zero-network via `internal/common/testutil` fakes and the `scripts/check-no-live-tests.sh` guardrail. Live integration tests require both the `integration` build tag and `SAGEO_LIVE_TESTS=1`.
-
-- `sageo init --url <site>` creates `.sageo/state.json`
-- `sageo crawl run` + `sageo audit run` populate crawl findings
-- `sageo psi run` fetches Core Web Vitals from Google PageSpeed Insights
-- `sageo gsc query pages/keywords` pulls Google Search Console data
-- `sageo serp analyze/batch` fetches SERP features and rankings
-- `sageo labs ranked-keywords/bulk-difficulty` enriches with keyword difficulty and intent
-- `sageo backlinks summary/gap` adds link profile data
-- `sageo analyze` runs the merge engine across all sources → writes `merged_findings` to state
-- `sageo status` shows a summary of what data is present and what's missing
-
-## Data Tiers
-
-| Tier | Sources | Cost | Notes |
-|------|---------|------|-------|
-| **1** | Crawl + Audit + PSI | Free | PSI uses Google's free API (optional API key for higher quota) |
-| **2** | GSC | Free | Requires OAuth2 setup (`sageo auth login gsc`) |
-| **3** | SERP, Labs, AEO, GEO | Paid | DataForSEO — SERP Live $0.002/query, Batch $0.0006/query, Labs $0.01/task |
-| **4** | Backlinks | Paid | DataForSEO Backlinks API — requires $100/month minimum commitment |
-
-## Command Hierarchy
-
-### Project commands
-- `init` — create `.sageo/state.json` for a site (`--url`)
-- `status` — show project state summary (sources present/missing, findings count)
-- `analyze` — run cross-source merge engine, write `merged_findings` to state
-
-### Core pipeline
-- `crawl run` — BFS website crawler
-- `audit run` — SEO audit with rule-based checks and scoring
-- `report generate` — full crawl → audit → JSON report pipeline
-- `report list` — list stored reports
-
-### PageSpeed Insights
-- `psi run` — fetch Core Web Vitals for a URL (`--url`, `--strategy mobile|desktop`)
-
-### Google Search Console
-- `gsc sites list` — list accessible GSC properties
-- `gsc sites use` — set active property
-- `gsc query pages` — top pages by search performance
-- `gsc query keywords` — top keywords by search performance
-- `gsc opportunities` — filtered query+page pairs for opportunity detection
-
-### SERP analysis (paid, `--dry-run`)
-- `serp analyze` — single query SERP analysis with feature detection
-- `serp compare` — compare SERP results across multiple queries
-- `serp batch` — batch SERP analysis via DataForSEO Standard queue ($0.0006/keyword, up to 100 keywords)
-
-### Labs intelligence (paid, `--dry-run`)
-- `labs ranked-keywords` — keywords a domain ranks for (with difficulty, volume, intent, position)
-- `labs keywords` — keyword ideas relevant to a domain
-- `labs overview` — domain ranking overview
-- `labs competitors` — competing domains by ranking overlap
-- `labs keyword-ideas` — keyword ideas from a seed keyword
-- `labs bulk-difficulty` — bulk keyword difficulty scores (`--keywords` or `--from-gsc`)
-
-### Backlinks (paid, `--dry-run`)
-- `backlinks summary` — backlink profile overview (total backlinks, referring domains, spam score, rank)
-- `backlinks list` — individual backlinks with source URLs and anchor text (`--dofollow-only`)
-- `backlinks referring-domains` — domains linking to the target
-- `backlinks competitors` — domains sharing backlink sources
-- `backlinks gap` — domains linking to competitors but not the target (auto-loads competitors from state)
-
-### AEO / GEO (paid, `--dry-run`)
-- `aeo models` — list the live DataForSEO AI model catalogue (cached 7 days)
-- `aeo responses` — query one or more AI engines; supports `--engine`, `--all`, `--models`, `--tier`, `--concurrency` for parallel multi-model fan-out
-- `aeo keywords` — AEO keyword search volume
-- `aeo mentions scan` — Layer A: offline scan of stored AEO responses for brand terms (free)
-- `aeo mentions search` — Layer B: DataForSEO LLM Mentions search
-- `aeo mentions top-pages` — pages AI engines cite for a brand/keyword
-- `aeo mentions top-domains` — domains AI engines cite for a brand/keyword
-- `geo mentions` — generative engine mention tracking
-- `geo top-pages` — top pages in generative results
+All stages persist their results to `.sageo/state.json` as they go. `internal/pipeline` owns ordering, budget enforcement, dry-run planning, and the snapshot/calibration hooks.
+
+## Package layout
+
+### Data collection
+
+| Package | Purpose |
+|---|---|
+| `internal/crawl` | BFS crawler with depth + page limits, concurrent fetching |
+| `internal/audit` | Rule-based SEO audit over a crawl result, emits `Finding`s and a 0-100 score |
+| `internal/gsc` | Google Search Console API client, OAuth token plumbing, query/pages/keywords |
+| `internal/auth` | GSC OAuth flow, token persistence + refresh |
+| `internal/psi` | PageSpeed Insights client (LCP, CLS, FCP, TBT, SI) |
+| `internal/serp` | SERP provider interface plus SerpAPI and DataForSEO adapters (`internal/serp/serpapi`, `internal/serp/dataforseo`) |
+| `internal/dataforseo` | Shared DataForSEO HTTP client used by Labs, Backlinks, AEO, GEO, SERP |
+| `internal/backlinks` | DataForSEO Backlinks API (summary, list, referring-domains, competitors, gap) |
+| `internal/aeo/mentions` | Layer A: offline scan of stored AEO responses for brand terms |
+| `internal/aeo/llmmentions` | Layer B: DataForSEO LLM Mentions API (search, top-pages, top-domains) |
+| `internal/opportunities` | GSC opportunity seeds (legacy, superseded by merge engine) |
+| `internal/provider` | HTTP fetcher abstraction with built-in `local` provider |
+| `internal/llm` | LLM provider interface + registry |
+| `internal/llm/anthropic` | Anthropic Messages API driver (`claude-sonnet-4-6`) |
+| `internal/llm/openai` | OpenAI Chat Completions driver (`gpt-5`) |
+| `internal/llm/providers` | Side-effect registration of built-in drivers |
+
+### Analysis
+
+| Package | Purpose |
+|---|---|
+| `internal/merge` | 14 cross-source rules that emit `MergedFinding` + atomic `Recommendation` objects |
+| `internal/recommendations` | Recommendation types (aliased from `internal/state` to avoid cycles), drafter, context assembly, store helpers |
+| `internal/forecast` | Position-to-CTR model (AWR 2024 baseline), calibration against `.sageo/calibration.json`, priority-tier attachment |
+| `internal/compare` | Snapshot diff: typed deltas per source, per-ChangeType detectors that infer whether a recommendation was addressed, observed-lift emission |
+
+### Presentation
+
+| Package | Purpose |
+|---|---|
+| `internal/report` | JSON report generation and listing |
+| `internal/report/html` | Self-contained HTML report renderer (inline CSS, optional logo, brand color, appendix) |
+| `pkg/output` | JSON envelope formatter, error codes |
+
+### Infrastructure
+
+| Package | Purpose |
+|---|---|
+| `internal/state` | `.sageo/state.json` schema and per-run snapshot store (state.go, recommendations.go, snapshot.go) |
+| `internal/pipeline` | Orchestrator for `sageo run`: stage ordering, budget enforcement, resume, snapshot hooks |
+| `internal/common/config` | Config load/save, env-var overrides, redaction |
+| `internal/common/cost` | Cost estimation helpers |
+| `internal/common/cache` | On-disk response cache with TTL |
+| `internal/common/urlnorm` | URL normalisation for cross-source joins |
+| `internal/common/retry` | Backoff helpers |
+| `internal/common/testutil` | Fake HTTP servers for unit tests (DataForSEO, Anthropic, OpenAI, PSI) |
+| `internal/version` | Build metadata injected at link time |
+| `internal/cli` | Cobra root wiring |
+| `internal/cli/commands` | One file per top-level command |
+| `cmd/sageo` | `main.go` entry point |
+
+## Data flow: a single `sageo run`
+
+1. **Parse.** `internal/cli/commands/run.go` parses flags, validates the URL, loads prompts, and builds a `pipeline.Config` plus an ordered `[]Stage`.
+2. **Init.** If `.sageo/state.json` is absent, `state.Init` creates it with the target URL and an empty history.
+3. **Plan.** `pipeline.Run` enforces `--skip` / `--only`, applies `--resume` from `state.PipelineCursor`, computes per-stage estimates, and (under `--dry-run`) prints the plan and exits.
+4. **Stage loop.** For each stage:
+   - Budget check: if accumulated paid spend plus this stage's estimate exceeds `--budget`, skip with `budget-exceeded`.
+   - Approval gate: if the stage is paid and the estimate crosses `SAGEO_APPROVAL_THRESHOLD_USD`, require `--approve`.
+   - Execute `stage.Run(ctx, state)`. The stage mutates state in place (e.g. `state.GSC = &GSCData{...}`, `state.UpsertPSI(...)`, `state.UpsertAEOResponses(...)`).
+   - `state.Save(workDir)` after each successful stage. `state.PipelineCursor` advances to the stage name.
+5. **Merge.** `internal/merge` applies 14 rules over the populated state, emits `MergedFinding`s, and calls `recommendations.UpsertRecommendations` with the derived `Recommendation` set.
+6. **Draft.** `recommendations` drafter iterates recommendations with empty `recommended_value`, assembles context (page content + evidence), calls the configured LLM driver, validates against SERP length limits with retry, and writes drafts with `review_status = pending_review` and `original_draft` preserved.
+7. **Forecast.** `forecast.AttachForecasts` computes raw click-delta estimates, reads `.sageo/calibration.json`, fits a profile if enough samples, and attaches `Forecast` with `priority_tier`, `point/low/high`, `caveats`, and `calibration_samples`.
+8. **Review gate.** Unless `--no-review`, `run.go` invokes the interactive TUI (`recommendations review`) so a human approves, edits, or rejects each draft. `--auto-approve-all` bypasses (unsafe).
+9. **Snapshot.** Unless `--no-snapshot`, `state.WriteSnapshot` creates `.sageo/snapshots/<ts>.tmp/`, writes `state.json`, `recommendations.json`, `report.html`, `metadata.json`, renames atomically to `.sageo/snapshots/<ts>/`, updates `index.json`, and refreshes the top-level `.sageo/state.json` copy. Old snapshots are pruned per `--retain N` and `--retain-within`.
+10. **Audit log.** A `PipelineRun` entry is appended to `state.PipelineRuns` with stages run, total cost, outcome, and any error.
+
+## State schema
+
+Authoritative types live in `internal/state/state.go` and `internal/state/recommendations.go`. Top-level `State`:
+
+- **`Site`, `Initialized`, `LastCrawl`, `Score`, `PagesCrawled`.** Project-level scalars from `init` and the most recent audit.
+- **`Findings`, `MergedFindings`, `LastAnalysis`.** Output of `audit` and `analyze`; `MergedFindings` is `json.RawMessage` to avoid cycles.
+- **`GSCData`.** Last pull timestamp, property, top pages, top keywords (each a `GSCRow`).
+- **`PSIData`.** Last run timestamp, `[]PSIResult` upserted by URL + strategy.
+- **`SERPData`.** Last run timestamp, `[]SERPQueryResult` with features, related questions, top domains, our position per query.
+- **`LabsData`.** Target domain, `[]LabsKeyword` (keyword, volume, difficulty, CPC, intent, position), competitor domains.
+- **`BacklinksData`.** Totals, broken-link count, rank, dofollow/nofollow split, spam score, top referrers, gap domains.
+- **`AEOData`.** `[]AEOPromptResult` keyed by prompt; each has per-engine `AEOResponseResult`s with model, response text, fetched-at.
+- **`BrandTerms`.** Set by `sageo init --brand "Name,alias"`.
+- **`Mentions`.** `[]MentionsData` keyed by term: local matches from Layer A, plus domain share and top pages from Layer B.
+- **`Recommendations`.** `[]Recommendation` upserted by ID. Each has a `ChangeType`, current + recommended values, evidence, priority, `ForecastedLift`, and review-gate fields (`ReviewStatus`, `ReviewedAt`, `ReviewedBy`, `OriginalDraft`).
+- **`History`.** Rolling log (max 200 entries) of agent/user actions.
+- **`PipelineCursor`, `PipelineRuns`.** Resume bookmark and audit log of autonomous runs.
+
+Snapshots on disk (`.sageo/snapshots/<ts>/`) are frozen copies: `state.json`, `recommendations.json`, `report.html`, `metadata.json` (a `SnapshotMeta` with stages run, total cost, pipeline version, git commit, outcome). See `internal/state/snapshot.go` for the atomic write protocol and the `index.json` pointer.
+
+## Recommendation lifecycle
+
+One sentence per stage.
+
+1. **Merged finding.** `internal/merge` rules fire against populated state and emit a `MergedFinding` describing what is wrong and why.
+2. **Generator.** The rule emits a `Recommendation` with `change_type`, `target_url`, `evidence`, `priority`, `effort_minutes`, and an empty `recommended_value`; `state.UpsertRecommendations` stores it keyed by ID.
+3. **Drafter.** `recommendations.Draft` picks up recommendations with empty values, assembles page + evidence context, calls the LLM driver, validates output, and stores `recommended_value` with `review_status = pending_review` and `original_draft` preserved.
+4. **Review gate.** `sageo recommendations review` walks the queue; the human sets `review_status` to `approved`, `edited`, or `rejected` with `reviewed_at`, `reviewed_by`, and optional `review_notes`.
+5. **Forecaster.** `forecast.AttachForecasts` computes raw click delta from the position-to-CTR curve, applies the calibration profile when available, and sets `ForecastedLift` with `priority_tier`, range, caveats, and `calibration_samples`.
+6. **Report.** `internal/report/html` renders approved and edited recommendations as cards, pending with a badge, rejected excluded entirely; the forecast table is sorted by priority tier.
+7. **Snapshot.** The finalised `Recommendation` is frozen into `.sageo/snapshots/<ts>/recommendations.json`.
+8. **Compare.** On the next run, `internal/compare` detectors check whether the recommendation was addressed (e.g. schema now visible, PSI crossed a good-band threshold, referring domains grew).
+9. **Calibration.** When addressed and GSC data is paired in both snapshots, `compare` appends an `ObservedLift` record to `.sageo/calibration.json`; the forecaster reads it on the next `recommendations forecast` invocation.
 
-### Recommendations
-- `recommendations list` — list stored recommendations sorted by priority (`--url`, `--type`, `--top`, `--format`)
-- `recommendations draft` — LLM-draft `RecommendedValue` for empty recommendations (`--provider`, `--type`, `--url`, `--limit`, `--dry-run`)
-- `recommendations forecast` — attach estimated monthly click-lift to each recommendation
+## Cost control
 
-### Autonomous run
-- `run <url>` — end-to-end pipeline: crawl → audit → GSC → PSI → SERP → Labs → backlinks → AEO → merge → recommend → draft → forecast. Flags: `--budget`, `--skip`, `--only`, `--max-pages`, `--prompts`, `--dry-run`, `--approve`, `--resume`
+- **Estimate.** Each paid stage implements `EstimateUSD(*state.State) float64`. The pipeline sums estimates up front and surfaces them via `--dry-run`.
+- **Approval gate.** When a stage estimate crosses `SAGEO_APPROVAL_THRESHOLD_USD`, execution blocks until the user passes `--approve` (or re-runs below the threshold). `sageo run --approve` pre-approves all stages.
+- **Budget flag.** `sageo run --budget N` is a hard ceiling; stages whose estimates would push accumulated spend over `N` are skipped with a `budget-exceeded` outcome rather than partial.
+- **Caching.** `internal/common/cache` stores responses on disk with per-command TTL. Cached reads set `metadata.cached = true` and `metadata.source = "cache"`.
+- **Dry run.** Every paid command accepts `--dry-run`, printing estimates and returning before any paid call. `sageo run --dry-run` prints the full stage plan.
+- **Test isolation.** Unit tests never make live calls (see TESTING.md). Integration tests are tagged `//go:build integration` and gated on `SAGEO_LIVE_TESTS=1`. `scripts/check-no-live-tests.sh` enforces this in `make test`.
 
-### Reporting
-- `report generate` — JSON audit report
-- `report list` — list stored JSON reports
-- `report html` — styled client-ready self-contained HTML (cover, exec summary, per-source findings, recommendation cards, sortable forecast table, optional appendix). Flags: `--output`, `--logo`, `--brand-color`, `--appendix`, `--open`, `--title`. Users print-to-PDF via the browser (Cmd/Ctrl+P).
-- `report pdf` — *deprecated* alias for `report html` (prints a warning, renders HTML)
+## Extensibility
 
-### Authentication & config
-- `login` — interactive credential setup (GSC OAuth, DataForSEO)
-- `logout` — clear stored credentials
-- `auth login` / `auth status` / `auth logout` — service-level authentication
-- `config show` / `config get` / `config set` / `config path` — config management
-- `provider list` / `provider use` — HTTP fetcher provider management
-- `version` — build/runtime metadata
+**New data source.** Add an `internal/<source>` package with a client and a state struct. Add an `Upsert<Source>` method on `state.State`. Add a command under `internal/cli/commands/<source>.go`. Register a stage in `internal/cli/commands/run.go` with an `EstimateUSD` if paid. Extend the state schema test.
 
-### Opportunities (legacy)
-- `opportunities` — merged opportunity detection from GSC + optional SERP enrichment
+**New recommendation ChangeType.** Add the constant in `internal/state/recommendations.go` with a doc comment citing the section in `docs/research/ai-citation-signals-2026.md` that supports it. Teach the merge engine to emit it (new rule in `internal/merge`). Teach the drafter prompt assembly how to describe it. Teach the HTML renderer how to display it. Teach the forecaster how to weight it. Teach the compare detectors how to decide if it was addressed.
 
-### Global flags
-- `--output, -o` (`json`, `text`, `table`) default `json`
-- `--verbose, -v` boolean flag
+**New LLM provider.** Add an `internal/llm/<name>` driver implementing `llm.Provider`. Register it from `internal/llm/providers/providers.go` via `llm.Register`. Add credentials to `internal/common/config` and the env-var list.
 
-## Package Responsibilities
+**New SERP provider.** Implement `serp.Provider` under `internal/serp/<name>`. Wire selection in `internal/cli/commands/serp.go` via the `SERPProvider` config field.
 
-### `cmd/sageo/main.go`
-Entrypoint that calls `internal/cli.Execute(version)`. Version is injected via ldflags.
+**New merge rule.** Add the rule function in `internal/merge` returning zero or more `Recommendation`s from state. Register it in the rule list. Cover with a table-driven unit test.
 
-### `internal/cli`
-- `root.go`: root Cobra command, global flags, registration of all 18 top-level commands.
-- `commands/*.go`: command constructors that wire services, cost gates, and output.
+## What this architecture does not do
 
-### `internal/crawl`
-BFS website crawler with depth limit, max-pages cap, same-domain scoping, and concurrent workers. Extracts title, meta description, canonical, headings, links, images, word count, and structured data.
-
-### `internal/audit`
-Rule-based SEO audit engine. Checks title, meta description, H1, image alt, canonical, status code, word count, and noindex directives. Computes a 0–100 score across all crawled pages.
-
-### `internal/report`
-JSON report generation and storage. Writes reports to `~/.config/sageo/reports/` and lists stored report metadata.
-
-### `internal/psi`
-Google PageSpeed Insights client. Fetches Core Web Vitals (LCP, CLS, FCP, TBT, SI) for a URL. Supports API key auth, OAuth token auth (reusing GSC token), or unauthenticated mode.
-
-### `internal/state`
-Project state persistence. Manages `.sageo/state.json` containing crawl findings, GSC data, PSI results, SERP queries with features, Labs keywords with difficulty/intent, backlink profile data, merged findings, and action history.
-
-### `internal/merge`
-Cross-source merge engine with 13 rules. Compares crawl findings, GSC data, PSI results, SERP features, Labs keywords, and backlink data to produce prioritised `MergedFinding` objects sorted by urgency score.
-
-### `internal/serp`
-SERP provider abstraction. Defines `Provider` interface (`Name`, `Estimate`, `Analyze`), request/response types, and 9 SERP feature type constants (Featured Snippet, PAA, Local Pack, Knowledge Graph, AI Overview, Top Stories, Inline Videos, Inline Shopping, Inline Images).
-
-### `internal/serp/dataforseo`
-DataForSEO SERP adapter. Implements `serp.Provider` for Live endpoint ($0.002/query) and adds `AnalyzeBatch` for Standard queue ($0.0006/query). Defaults to Australia (location_code 2036) and English.
-
-### `internal/serp/serpapi`
-SerpAPI adapter. Implements `serp.Provider` at $0.01/search. Fallback when DataForSEO credentials are not configured.
-
-### `internal/backlinks`
-Backlink domain types: `Summary`, `Backlink`, `ReferringDomain`, `CompetitorBacklinks`, `BacklinkGap`. Command implementations live in `internal/cli/commands/backlinks.go` and call the DataForSEO Backlinks API directly.
-
-### `internal/opportunities`
-Legacy opportunity detection. Merges GSC seeds with optional SERP evidence into scored opportunities. Largely superseded by the `merge` engine + `analyze` command for cross-source analysis.
-
-### `internal/gsc`
-Google Search Console client. Authenticated API client for listing sites, querying pages/keywords, and generating opportunity seeds.
-
-### `internal/auth`
-OAuth token store. Persists tokens to `~/.config/sageo/auth/<service>.json` with expiry checking and refresh support.
-
-### `internal/provider`
-Provider abstraction for HTTP fetching. Registry pattern with built-in `local` fetcher using `net/http`.
-
-### `internal/dataforseo`
-Shared DataForSEO HTTP client with Basic Auth. Reused by SERP, Labs, AEO, GEO, and Backlinks commands.
-
-### `internal/aeo`
-AI model catalogue. Loads and caches the live DataForSEO AI optimization model list (7-day disk cache) and exposes the `aeo models` surface. Provides model ↔ engine resolution used by multi-model fan-out in `sageo aeo responses`.
-
-### `internal/aeo/mentions`
-Layer A brand-mention detection — purely offline. Scans stored AEO responses in state for project brand terms (set via `sageo init --brand`) and writes `MentionsData` back to state.
-
-### `internal/aeo/llmmentions`
-Layer B brand-mention detection against the DataForSEO LLM Mentions API. Implements `search`, `top-pages`, `top-domains`, and `aggregated-metrics`. Upserts mention rows to state keyed by term.
-
-### `internal/llm`
-LLM provider abstraction. Defines the `Client` interface (Draft, Estimate), a shared registry, and request/response types for drafting SEO copy. Drivers register via side-effect import from `internal/llm/providers`.
-
-### `internal/llm/anthropic`
-Anthropic driver. Calls the Messages API with `claude-sonnet-4-6` by default. Handles retries, length-validated responses for title/meta/H1/H2/schema/body copy.
-
-### `internal/llm/openai`
-OpenAI driver. Calls Chat Completions with `gpt-5` by default. Mirrors the Anthropic contract so `recommendations draft --provider openai` is a drop-in swap.
-
-### `internal/recommendations`
-Converts `MergedFinding` objects into atomic `state.Recommendation` objects (one per change type), upserts them to state by stable ID, and exposes list/filter helpers. Hosts the drafter (`recommendations.Draft`) and forecast glue (`recommendations.AttachForecasts`). Types are aliased from `internal/state` to avoid an import cycle.
-
-### `internal/forecast`
-Click-lift forecaster. Uses the Advanced Web Ranking 2024 position→CTR curve (swappable via `SetCurve`). Computes `state.Forecast { estimated_monthly_clicks_delta, confidence_low, confidence_high, method }` from current position + impressions + a target position inferred from the recommendation's change type.
-
-### `internal/pipeline`
-Orchestrates `sageo run`. Runs stages in order (crawl → audit → gsc → psi → serp → labs → backlinks → aeo → merge → recommendations → draft → forecast), enforces `--budget`, honours `--skip` / `--only` / `--resume` / `--dry-run` / `--approve`, and records progress in state so failures can resume.
-
-### `internal/report/html`
-HTML renderer for `sageo report html`. Produces a single self-contained HTML document with inlined CSS, minimal vanilla JS, and no external resources — opens in any browser and works offline. Sections: cover, executive summary, per-source "what's broken" (collapsible via `<details>`), recommendation cards (priority badge + evidence + before/after), sortable forecast table, and optional raw-data appendix. Includes an `@media print` stylesheet that expands all details, forces clean A4 page breaks, and keeps priority badges readable in monochrome — users produce a PDF via browser print-to-PDF (Cmd/Ctrl+P). Supports `--logo` (inlined as base64 data URI) and `--brand-color`.
-
-### `internal/common/testutil`
-Shared unit-test helpers for network isolation — `NewFakeDataForSEO`, `NewFakeAnthropic`, `NewFakeOpenAI`, `NewFakePSI`. Enables zero-cost, zero-network unit tests against paid providers.
-
-### `internal/common/config`
-Config management with path resolution, env override hooks, `Load`/`Save`, and secret redaction.
-
-### `internal/common/cost`
-Cost estimation (`BuildEstimate`) and approval gates (`EvaluateApproval`). Used by all paid commands.
-
-### `internal/common/cache`
-File-based response caching to `~/.config/sageo/cache/<provider>/<hash>.json` with TTL-based expiry.
-
-### `internal/common/urlnorm`
-URL normalisation utilities. Strips trailing slashes, lowercases scheme/host, removes fragments. Used by the merge engine to join data across sources.
-
-### `internal/common/retry`
-HTTP retry utilities with backoff for transient failures.
-
-### `pkg/output`
-Shared envelope renderer. JSON-first output with optional text/table modes. Machine-readable error codes for programmatic classification.
-
-## State Model
-
-The `.sageo/state.json` file is the single source of truth for a project. It accumulates data from multiple sources:
-
-```json
-{
-  "site": "https://example.com",
-  "initialized": "2025-01-01T00:00:00Z",
-  "last_crawl": "...",
-  "score": 72.5,
-  "pages_crawled": 15,
-  "findings": [
-    { "rule": "missing-meta-description", "url": "...", "value": "...", "verdict": "...", "why": "...", "fix": "..." }
-  ],
-  "gsc": {
-    "last_pull": "...",
-    "property": "sc-domain:example.com",
-    "top_pages": [{ "key": "...", "clicks": 10, "impressions": 200, "ctr": 0.05, "position": 8.3 }],
-    "top_keywords": [{ "key": "...", "clicks": 5, "impressions": 100, "ctr": 0.05, "position": 12.1 }]
-  },
-  "psi": {
-    "last_run": "...",
-    "pages": [{ "url": "...", "performance_score": 45, "lcp_ms": 5200, "cls": 0.32, "strategy": "mobile" }]
-  },
-  "serp": {
-    "last_run": "...",
-    "queries": [{
-      "query": "example keyword",
-      "has_ai_overview": true,
-      "features": [{ "type": "featured_snippet", "position": 1, "title": "...", "url": "...", "domain": "..." }],
-      "related_questions": ["What is...?", "How to...?"],
-      "top_domains": ["competitor1.com", "competitor2.com"],
-      "our_position": 5
-    }]
-  },
-  "labs": {
-    "last_run": "...",
-    "target": "example.com",
-    "keywords": [{ "keyword": "...", "search_volume": 1200, "difficulty": 23, "cpc": 1.50, "intent": "informational", "position": 8 }],
-    "competitors": ["competitor1.com", "competitor2.com"]
-  },
-  "backlinks": {
-    "last_run": "...",
-    "target": "example.com",
-    "total_backlinks": 1500,
-    "total_referring_domains": 120,
-    "broken_backlinks": 15,
-    "rank": 45,
-    "dofollow": 1200,
-    "nofollow": 300,
-    "spam_score": 5.2,
-    "top_referrers": ["referrer1.com", "referrer2.com"],
-    "gap_domains": ["gapsite1.com", "gapsite2.com"]
-  },
-  "merged_findings": [...],
-  "last_analysis": "...",
-  "history": [{ "ts": "...", "action": "crawl", "detail": "..." }]
-}
-```
-
-## Merge Engine Rules
-
-The merge engine (`internal/merge`) runs 13 rules across all available data sources. Rules only fire when their required data sources are present.
-
-| # | Rule | Sources Required | Verdict | Description |
-|---|------|-----------------|---------|-------------|
-| 1 | `ranking-but-not-clicking` | crawl + GSC | high | Page has impressions but 0 clicks and crawl issues |
-| 2 | `not-indexed` | crawl + GSC | medium | Page found in crawl but absent from GSC (may not be indexed) |
-| 3 | `issues-on-high-traffic-page` | crawl + GSC | high | Page with organic clicks also has crawl issues |
-| 4 | `thin-content-ranking-well` | crawl + GSC | medium | Page under 300 words ranks in top 10 — content expansion opportunity |
-| 5 | `schema-not-showing` | crawl + GSC | low | Page has schema markup but CTR is below 5% — rich results may not appear |
-| 6 | `slow-core-web-vitals` | PSI + GSC | high | Performance score < 50 on a page with GSC impressions |
-| 7 | `ai-overview-eating-clicks` | SERP + GSC | medium | Query has AI Overview and CTR is below 3% |
-| 8 | `featured-snippet-opportunity` | SERP + GSC | medium | Query has Featured Snippet and site ranks positions 2–10 |
-| 9 | `paa-content-opportunity` | SERP + crawl | low | Query has 2+ PAA questions not addressed by the page |
-| 10 | `easy-win-keyword` | Labs + GSC | high | Keyword with difficulty < 30, volume > 30, ranking beyond position 5 |
-| 11 | `informational-content-gap` | Labs | medium | Informational keyword with volume > 50, difficulty < 40, not ranking |
-| 12 | `weak-backlink-profile` | Backlinks + Labs | high | Fewer than 10 referring domains while targeting keywords with difficulty > 20 |
-| 13 | `broken-backlinks-found` | Backlinks | medium | Broken backlinks wasting link equity |
-
-All findings are scored numerically (priority_score 10–100) and sorted by urgency. Priority labels: `high` (70–100), `medium` (40–69), `low` (10–39).
-
-## SERP Feature Detection
-
-The SERP adapter detects 9 feature types from DataForSEO results:
-
-| Feature Type | Constant |
-|-------------|----------|
-| Featured Snippet | `featured_snippet` |
-| People Also Ask | `people_also_ask` |
-| Local Pack | `local_pack` |
-| Knowledge Graph | `knowledge_graph` |
-| AI Overview | `ai_overview` |
-| Top Stories | `top_stories` |
-| Inline Videos | `inline_videos` |
-| Inline Shopping | `inline_shopping` |
-| Inline Images | `inline_images` |
-
-## Cost-Aware Execution Model
-
-### Pricing Reference
-
-| Command | Method | Cost |
-|---------|--------|------|
-| `serp analyze` | Live/Advanced | $0.002/query |
-| `serp batch` | Standard queue | $0.0006/query |
-| `serp compare` | Live × N queries | $0.002 × N |
-| `labs ranked-keywords` | Labs API | $0.01/task |
-| `labs keywords` | Labs API | $0.01/task |
-| `labs overview` | Labs API | $0.01/task |
-| `labs competitors` | Labs API | $0.01/task |
-| `labs keyword-ideas` | Labs API | $0.01/task |
-| `labs bulk-difficulty` | Labs API | $0.001/task (up to 1000 keywords) |
-| `backlinks summary` | Backlinks API | $0.02/task |
-| `backlinks list` | Backlinks API | $0.02 + $0.00003/row |
-| `backlinks referring-domains` | Backlinks API | $0.02 + $0.00003/row |
-| `backlinks competitors` | Backlinks API | $0.02 + $0.00003/row |
-| `backlinks gap` | Backlinks API | $0.02 + $0.00003/row |
-
-### Cost metadata
-Paid commands expose machine-readable metadata:
-- `estimated_cost` — computed cost estimate before execution
-- `currency` — always `USD`
-- `requires_approval` — true when estimate exceeds `approval_threshold_usd`
-- `cached` — whether the response came from cache
-- `source` — which provider produced the data
-- `fetched_at` — RFC3339 timestamp of data retrieval
-- `dry_run` — true when `--dry-run` flag was used
-
-### Approval gate
-When `approval_threshold_usd` is set (> 0), any paid command whose estimated cost exceeds the threshold returns `APPROVAL_REQUIRED` without executing.
-
-### Caching
-Paid responses are cached to `~/.config/sageo/cache/` with configurable TTL. Cache hits are reflected in output metadata and avoid repeat charges.
-
-## Config Model
-
-Keys:
-- `active_provider` — HTTP fetcher provider (default: `local`)
-- `api_key` (redacted on read/show)
-- `base_url`
-- `organization_id`
-- `serp_provider` — SERP data provider (default: `serpapi`, auto-fallback to `dataforseo` when credentials present)
-- `serp_api_key` (redacted)
-- `dataforseo_login` (redacted)
-- `dataforseo_password` (redacted)
-- `approval_threshold_usd` — cost gate threshold; 0 means no gate
-- `gsc_property` — active GSC property URL
-- `gsc_client_id` (redacted)
-- `gsc_client_secret` (redacted)
-- `psi_api_key` — Google PageSpeed Insights API key (redacted)
-- `llm_provider` — LLM provider for `recommendations draft` (default: `anthropic`)
-- `anthropic_api_key` (redacted)
-- `openai_api_key` (redacted)
-
-Default file: `~/.config/sageo/config.json`
-Override: `SAGEO_CONFIG` (must be absolute `.json` path)
-
-Environment variables covered in addition to the standard set: `SAGEO_LLM_PROVIDER`, `SAGEO_ANTHROPIC_API_KEY`, `SAGEO_OPENAI_API_KEY`, `SAGEO_LIVE_TESTS` (unit/integration test gate).
-
-## Location Defaults
-
-All DataForSEO API calls default to:
-- **Location**: Australia (location_code `2036`)
-- **Language**: English (`en`)
-
-Labs and SERP commands accept `--location` and `--language` flags to override. Supported locations for Labs: Australia, United States, United Kingdom, Canada, New Zealand.
-
-## Build and Release
-
-- `Makefile` for build/test/lint/release workflows
-- `scripts/release.sh` cross-compiles macOS, Linux, and Windows artifacts
-- `make install` builds and installs `sageo` to `~/go/bin`
+- **No server-side component.** Sageo is a CLI; there is no shared state across users. Each project has its own `.sageo/`.
+- **No agent loop yet.** Recommendations are one-shot per run. There is no self-critique or multi-turn refinement; the LLM drafts once and the review gate does the quality check.
+- **No post-deployment measurement without a re-run.** Sageo only learns whether a recommendation worked when the user runs `sageo run` again and `compare` sees the change.
+- **No CMS auto-apply.** Recommendations describe the change; sageo never pushes code to your site. Applying copy is a human or an external integration.
+- **No continuous monitoring.** There is no daemon, no watcher, no scheduled polling. Cadence is whatever the user (or their CI) invokes.
