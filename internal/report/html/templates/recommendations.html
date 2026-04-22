@@ -2,26 +2,28 @@
 <section class="page-break">
   <h1>Recommendations</h1>
   {{if .AllRecs}}
-    <p class="muted small">{{.RecCount}} recommendations, sorted by priority.</p>
+    <p class="muted small">{{.RecCount}} recommendations, sorted by priority. Click any card header to see evidence.</p>
     {{range .AllRecs}}
       <article class="rec-card">
         <div class="rec-head">
-          <span class="badge {{.TierClass}}" aria-label="Priority tier {{.TierLabel}}">{{.TierLabel}}</span>
-          <span class="title">{{.R.ChangeType}} on <span class="url">{{.R.TargetURL}}</span></span>
+          {{template "tierBadge" .}}
+          <span class="title">{{.R.ChangeType}} on <span class="url" title="{{.R.TargetURL}}">{{.R.TargetURL}}</span></span>
           {{if .ReviewBadge}}<span class="badge review-pending" aria-label="Pending review">{{.ReviewBadge}}</span>{{end}}
         </div>
 
         <p class="tier-headline">{{.TierHeadline}}</p>
 
         {{if or .R.CurrentValue .R.RecommendedValue}}
-        <div class="side-by-side">
-          <div class="col">
+        <div class="diff-block" role="group" aria-label="Current versus proposed value">
+          <div class="diff-col diff-current">
             <h4>Current</h4>
-            <div>{{.CurrentValue}}</div>
+            <div class="diff-value mono">{{.CurrentValue}}</div>
+            <div class="diff-meta small muted">{{.CurrentLen}} chars</div>
           </div>
-          <div class="col">
-            <h4>Recommended</h4>
-            <div>{{.RecommendedValue}}</div>
+          <div class="diff-col diff-proposed">
+            <h4>Proposed</h4>
+            <div class="diff-value mono">{{.RecommendedValue}}</div>
+            <div class="diff-meta small muted">{{.RecommendedLen}} chars</div>
           </div>
         </div>
         {{end}}
@@ -33,15 +35,6 @@
         </div>
         {{end}}
 
-        {{if .CaveatLines}}
-        <details class="caveats">
-          <summary>Forecast caveats ({{len .CaveatLines}})</summary>
-          <ul>
-            {{range .CaveatLines}}<li>{{.}}</li>{{end}}
-          </ul>
-        </details>
-        {{end}}
-
         {{if .R.Evidence}}
         <details>
           <summary>Evidence ({{len .R.Evidence}})</summary>
@@ -49,6 +42,16 @@
             {{range .R.Evidence}}
               <li><strong>[{{.Source}}]</strong> {{evidenceLine .}}</li>
             {{end}}
+          </ul>
+          {{if .ResearchCitation}}<p class="small muted research-citation">Research: docs/research/ai-citation-signals-2026.md, {{.ResearchCitation}}.</p>{{end}}
+        </details>
+        {{end}}
+
+        {{if .CaveatLines}}
+        <details class="caveats">
+          <summary>Forecast caveats ({{len .CaveatLines}})</summary>
+          <ul>
+            {{range .CaveatLines}}<li>{{.}}</li>{{end}}
           </ul>
         </details>
         {{end}}

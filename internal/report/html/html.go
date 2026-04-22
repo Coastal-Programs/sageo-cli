@@ -59,8 +59,10 @@ func Render(st *state.State, out io.Writer, opts Options) error {
 
 	tpl, err := template.New("layout.html").Funcs(funcMap()).ParseFS(templatesFS,
 		"templates/layout.html",
+		"templates/components.html",
 		"templates/cover.html",
 		"templates/summary.html",
+		"templates/quickwins.html",
 		"templates/diagnosis.html",
 		"templates/recommendations.html",
 		"templates/forecast.html",
@@ -183,6 +185,38 @@ type viewModel struct {
 	AEOData      []aeoRow
 	AEOPrompts   int
 	AEOResponses int
+
+	// QuickWins is a filtered subset of recommendations that are
+	// high-impact-per-effort (priority >= 70 AND effort_minutes <= 30).
+	QuickWins []recView
+
+	// PSIView decorates PSI rows with CWV band classes so the template
+	// can render colour-coded cells without inlining the band logic.
+	PSIView []psiRowView
+
+	// GSCView decorates GSC rows with position/CTR band classes.
+	GSCView []gscRowView
+}
+
+type psiRowView struct {
+	URL       string
+	Strategy  string
+	Score     float64 // 0-100 integer for display
+	ScoreBand string  // "good" | "needs" | "poor"
+	LCP       float64
+	LCPBand   string
+	CLS       float64
+	CLSBand   string
+}
+
+type gscRowView struct {
+	Query        string
+	Impressions  float64
+	Clicks       float64
+	CTR          float64
+	CTRBand      string
+	Position     float64
+	PositionBand string
 }
 
 type recView struct {
@@ -191,11 +225,15 @@ type recView struct {
 	TierLabel        string // HIGH | MEDIUM | LOW | UNKNOWN
 	TierClass        string // css class, e.g. tier-high
 	TierHeadline     string // full plain-English headline line
+	IsProvisional    bool   // tier was derived from rule priority because calibration is insufficient
 	LiftRange        string
 	EffortLabel      string
 	CurrentValue     string
 	RecommendedValue string
+	CurrentLen       int // character count of CurrentValue (for diff-block display)
+	RecommendedLen   int
 	CaveatLines      []string
+	ResearchCitation string // docs/research/ai-citation-signals-2026.md section reference, if any
 	// ReviewBadge is a short string shown next to the title when the
 	// draft is still awaiting human sign-off. Empty for approved/edited
 	// recommendations so the report stays clean once reviewed.
@@ -348,6 +386,9 @@ func buildViewModel(st *state.State, opts Options, styles template.CSS) viewMode
 	}
 
 	highN, medN, lowN, unkN := tierCounts(reportable)
+	quickWins := toRecViews(filterQuickWins(recs))
+	psiView := toPSIView(psiShow)
+	gscView := toGSCView(gscUnder)
 	hasCalibration, calSamples := calibrationSummary(reportable)
 
 	return viewModel{
@@ -391,6 +432,120 @@ func buildViewModel(st *state.State, opts Options, styles template.CSS) viewMode
 		AEOData:            aeoRows,
 		AEOPrompts:         aeoPrompts,
 		AEOResponses:       aeoResponses,
+		QuickWins:          quickWins,
+		PSIView:            psiView,
+		GSCView:            gscView,
+	}
+}
+
+// filterQuickWins picks low-effort high-priority recommendations. Used
+// by the Quick Wins callout at the top of the report.
+func filterQuickWins(in []state.Recommendation) []state.Recommendation {
+	out := make([]state.Recommendation, 0, len(in))
+	for _, r := range in {
+		if r.Priority >= 70 && r.EffortMinutes > 0 && r.EffortMinutes <= 30 {
+			out = append(out, r)
+		}
+		if len(out) >= 5 {
+			break
+		}
+	}
+	return out
+}
+
+func toPSIView(in []state.PSIResult) []psiRowView {
+	out := make([]psiRowView, 0, len(in))
+	for _, p := range in {
+		out = append(out, psiRowView{
+			URL:       p.URL,
+			Strategy:  p.Strategy,
+			Score:     p.PerformanceScore * 100,
+			ScoreBand: scoreBand(p.PerformanceScore * 100),
+			LCP:       p.LCP,
+			LCPBand:   lcpBand(p.LCP),
+			CLS:       p.CLS,
+			CLSBand:   clsBand(p.CLS),
+		})
+	}
+	return out
+}
+
+func toGSCView(in []state.GSCRow) []gscRowView {
+	out := make([]gscRowView, 0, len(in))
+	for _, r := range in {
+		out = append(out, gscRowView{
+			Query:        r.Key,
+			Impressions:  r.Impressions,
+			Clicks:       r.Clicks,
+			CTR:          r.CTR,
+			CTRBand:      ctrBand(r.CTR),
+			Position:     r.Position,
+			PositionBand: positionBand(r.Position),
+		})
+	}
+	return out
+}
+
+// scoreBand maps a 0-100 score to a colour band class.
+func scoreBand(score float64) string {
+	switch {
+	case score >= 90:
+		return "good"
+	case score >= 50:
+		return "needs"
+	default:
+		return "poor"
+	}
+}
+
+// lcpBand classifies a Largest Contentful Paint (ms) per the Core Web
+// Vitals thresholds.
+func lcpBand(ms float64) string {
+	switch {
+	case ms <= 2500:
+		return "good"
+	case ms <= 4000:
+		return "needs"
+	default:
+		return "poor"
+	}
+}
+
+// clsBand classifies a Cumulative Layout Shift per the Core Web Vitals
+// thresholds.
+func clsBand(cls float64) string {
+	switch {
+	case cls <= 0.1:
+		return "good"
+	case cls <= 0.25:
+		return "needs"
+	default:
+		return "poor"
+	}
+}
+
+// ctrBand classifies a GSC CTR (0-1 float) into a colour band.
+func ctrBand(ctr float64) string {
+	switch {
+	case ctr >= 0.05:
+		return "good"
+	case ctr >= 0.02:
+		return "needs"
+	default:
+		return "poor"
+	}
+}
+
+// positionBand classifies a GSC average position into a colour band.
+// Position 0 means "not ranking" and is treated as poor.
+func positionBand(pos float64) string {
+	switch {
+	case pos > 0 && pos <= 3:
+		return "good"
+	case pos > 0 && pos <= 10:
+		return "needs"
+	default:
+		return "poor"
 	}
 }
 
@@ -398,21 +553,78 @@ func toRecViews(rs []state.Recommendation) []recView {
 	out := make([]recView, 0, len(rs))
 	for _, r := range rs {
 		tier := tierOf(r)
+		cv := r.CurrentValue
+		rv := r.RecommendedValue
 		out = append(out, recView{
 			R:                r,
 			PriorityClass:    priorityClass(r.Priority),
 			TierLabel:        tierLabel(tier),
 			TierClass:        tierClass(tier),
 			TierHeadline:     tierHeadline(r),
+			IsProvisional:    isProvisionalTier(r),
 			LiftRange:        liftRangeHuman(r),
 			EffortLabel:      effortLabel(r),
-			CurrentValue:     emptyDash(r.CurrentValue),
-			RecommendedValue: emptyDash(r.RecommendedValue),
+			CurrentValue:     emptyDash(cv),
+			RecommendedValue: emptyDash(rv),
+			CurrentLen:       len(cv),
+			RecommendedLen:   len(rv),
 			CaveatLines:      humanCaveats(r),
+			ResearchCitation: researchCitation(r.ChangeType),
 			ReviewBadge:      reviewBadge(r),
 		})
 	}
 	return out
+}
+
+// isProvisionalTier reports true when the recommendation's tier was
+// derived from the rule-engine priority score as a fallback because
+// calibration data is insufficient. UI surfaces this as a "(provisional)"
+// hint next to the tier badge so readers don't mistake it for a
+// calibrated signal.
+func isProvisionalTier(r state.Recommendation) bool {
+	if r.ForecastedLift == nil {
+		return false
+	}
+	if r.ForecastedLift.ConfidenceLabel != "insufficient_data" {
+		return false
+	}
+	return r.ForecastedLift.PriorityTier != state.PriorityUnknown && r.ForecastedLift.PriorityTier != ""
+}
+
+// researchCitation returns a short footnote pointing at the section of
+// docs/research/ai-citation-signals-2026.md that underwrites this change
+// type, so rendered evidence can credit the source of each lever.
+// Returns empty string when no citation is defined.
+func researchCitation(ct state.ChangeType) string {
+	switch ct {
+	case state.ChangeTitle:
+		return "Keep (well-supported), §ChangeTitle"
+	case state.ChangeMeta:
+		return "Demote (weak evidence), §ChangeMeta"
+	case state.ChangeH1, state.ChangeH2:
+		return "Keep (well-supported), §ChangeH1/H2"
+	case state.ChangeSchema:
+		return "Keep (well-supported), §ChangeSchema"
+	case state.ChangeBody:
+		return "Keep (well-supported), §ChangeBody"
+	case state.ChangeSpeed:
+		return "Demote (weak evidence), §ChangeSpeed"
+	case state.ChangeBacklink:
+		return "Demote (weak evidence), §ChangeBacklink"
+	case state.ChangeIndexability:
+		return "Keep (well-supported), §ChangeIndexability"
+	case state.ChangeTLDR:
+		return "Add, §ChangeDirectAnswerIntro (Growth Memo, 18,012 citations)"
+	case state.ChangeListFormat:
+		return "Add, §ChangeListFormat (Averi / Growth Memo passage extraction)"
+	case state.ChangeAuthorByline:
+		return "Add, §ChangeAuthor (E-E-A-T, Person schema)"
+	case state.ChangeFreshness:
+		return "Add, §ChangeFreshness (Ahrefs 17M citations, Discovered Labs)"
+	case state.ChangeEntityConsistency:
+		return "Add, §ChangeEntityConsistency (brand mentions > backlinks as citation predictor)"
+	}
+	return ""
 }
 
 // filterReportable drops rejected recommendations. Pending, approved, and
@@ -539,14 +751,14 @@ func liftHigh(r state.Recommendation) int { return r.ForecastedLift.High() }
 // specific point number when calibration data is insufficient.
 func liftRangeHuman(r state.Recommendation) string {
 	if r.ForecastedLift == nil {
-		return "—"
+		return "."
 	}
 	f := r.ForecastedLift
 	if f.ConfidenceLabel == "insufficient_data" {
-		return fmt.Sprintf("~%s–%s clicks/mo (unverified)",
+		return fmt.Sprintf("~%s to %s clicks/mo (unverified)",
 			formatInt(f.Low()), formatInt(f.High()))
 	}
-	return fmt.Sprintf("%s–%s clicks/mo",
+	return fmt.Sprintf("%s to %s clicks/mo",
 		formatInt(f.Low()), formatInt(f.High()))
 }
 
@@ -591,18 +803,18 @@ func tierClass(t state.PriorityTier) string {
 func tierHeadline(r state.Recommendation) string {
 	tier := tierLabel(tierOf(r))
 	if r.ForecastedLift == nil {
-		return fmt.Sprintf("Priority: %s — no traffic forecast available.", tier)
+		return fmt.Sprintf("Priority: %s. No traffic forecast available.", tier)
 	}
 	f := r.ForecastedLift
 	switch f.ConfidenceLabel {
 	case "insufficient_data":
-		return fmt.Sprintf("Priority: %s — likely meaningful traffic impact. Specific click numbers are not reliable yet (need ≥%d past %s outcomes to calibrate).",
+		return fmt.Sprintf("Priority: %s. Likely meaningful traffic impact. Specific click numbers are not reliable yet (need at least %d past %s outcomes to calibrate).",
 			tier, 20, r.ChangeType)
 	case "low_confidence":
-		return fmt.Sprintf("Priority: %s — estimated %s–%s more clicks/month, but similar-type history is thin so take the specific numbers with a grain of salt.",
+		return fmt.Sprintf("Priority: %s. Estimated %s to %s more clicks/month, but similar-type history is thin so take the specific numbers with a grain of salt.",
 			tier, formatInt(f.Low()), formatInt(f.High()))
 	default:
-		return fmt.Sprintf("Priority: %s — estimated %s–%s more clicks/month if implemented (calibrated against %d past outcomes).",
+		return fmt.Sprintf("Priority: %s. Estimated %s to %s more clicks/month if implemented (calibrated against %d past outcomes).",
 			tier, formatInt(f.Low()), formatInt(f.High()), f.CalibrationSamples)
 	}
 }
@@ -617,15 +829,15 @@ func humanCaveats(r state.Recommendation) []string {
 	for _, c := range r.ForecastedLift.Caveats {
 		switch c {
 		case "insufficient_calibration_data":
-			out = append(out, "Historical calibration data is thin — the click range here is the raw model output, not verified against past outcomes.")
+			out = append(out, "Historical calibration data is thin: the click range here is the raw model output, not verified against past outcomes.")
 		case "low_confidence":
 			out = append(out, "Similar-type history is thin; specific numbers may be off.")
 		case "low_search_volume":
 			out = append(out, "Low search volume for this query makes predictions noisy.")
 		case "forecaster_tends_to_overshoot":
-			out = append(out, "For this change type, past forecasts have overshot reality — the range has been adjusted down.")
+			out = append(out, "For this change type, past forecasts have overshot reality; the range has been adjusted down.")
 		case "forecaster_tends_to_undershoot":
-			out = append(out, "For this change type, past forecasts have undershot reality — the range has been adjusted up.")
+			out = append(out, "For this change type, past forecasts have undershot reality; the range has been adjusted up.")
 		default:
 			out = append(out, c)
 		}
@@ -635,7 +847,7 @@ func humanCaveats(r state.Recommendation) []string {
 
 func effortLabel(r state.Recommendation) string {
 	if r.EffortMinutes <= 0 {
-		return "—"
+		return "."
 	}
 	return fmt.Sprintf("%d min", r.EffortMinutes)
 }
@@ -691,7 +903,7 @@ func safeSite(s string) string {
 
 func emptyDash(s string) string {
 	if strings.TrimSpace(s) == "" {
-		return "—"
+		return "(empty)"
 	}
 	return s
 }
@@ -746,6 +958,7 @@ func funcMap() template.FuncMap {
 		"evidenceLine": evidenceLine,
 		"pct":          func(f float64) string { return fmt.Sprintf("%.0f%%", f) },
 		"pctCTR":       func(f float64) string { return fmt.Sprintf("%.1f%%", f*100) },
+		"mul100":       func(f float64) float64 { return f * 100 },
 		"pctPerf":      func(f float64) string { return fmt.Sprintf("%.0f", f*100) },
 		"fmtFloat":     func(f float64, d int) string { return fmt.Sprintf("%.*f", d, f) },
 		"yesNo": func(b bool) string {
@@ -757,5 +970,78 @@ func funcMap() template.FuncMap {
 		"hasPrefix": strings.HasPrefix,
 		"lower":     strings.ToLower,
 		"nonZero":   func(n int) bool { return n != 0 },
+		// Visual helpers for the redesigned report.
+		"gaugeColor":     gaugeColor,
+		"gaugeDashArray": gaugeDashArray,
+		"tierIcon":       tierIcon,
+		"bandIcon":       bandIcon,
+		"priorityTotal": func(v viewModel) int {
+			return v.TierHighCount + v.TierMediumCount + v.TierLowCount + v.TierUnknownCount
+		},
+		"dict": func(pairs ...interface{}) map[string]interface{} {
+			m := map[string]interface{}{}
+			for i := 0; i+1 < len(pairs); i += 2 {
+				if k, ok := pairs[i].(string); ok {
+					m[k] = pairs[i+1]
+				}
+			}
+			return m
+		},
 	}
+}
+
+// gaugeColor returns the stroke colour for a circular score gauge.
+// Palette matches the Core Web Vitals bands used throughout the report.
+func gaugeColor(score float64) string {
+	switch {
+	case score >= 90:
+		return "#047857"
+	case score >= 50:
+		return "#CA8A04"
+	default:
+		return "#B91C1C"
+	}
+}
+
+// gaugeDashArray returns the SVG stroke-dasharray for a score so the
+// ring fills proportionally. Circumference for r=52 is ~326.7.
+func gaugeDashArray(score float64) string {
+	if score < 0 {
+		score = 0
+	}
+	if score > 100 {
+		score = 100
+	}
+	const circumference = 326.73
+	filled := circumference * score / 100
+	return fmt.Sprintf("%.2f %.2f", filled, circumference-filled)
+}
+
+// tierIcon returns a short glyph prefix for a priority tier badge so
+// colour is never the sole signal.
+func tierIcon(label string) string {
+	switch label {
+	case "HIGH":
+		return "▲"
+	case "MEDIUM":
+		return "◆"
+	case "LOW":
+		return "▾"
+	default:
+		return "?"
+	}
+}
+
+// bandIcon returns a glyph for a CWV / position / CTR band so colour
+// is never the sole signal.
+func bandIcon(band string) string {
+	switch band {
+	case "good":
+		return "✓ "
+	case "needs":
+		return "! "
+	case "poor":
+		return "✕ "
+	}
+	return ""
 }

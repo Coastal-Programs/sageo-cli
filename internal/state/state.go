@@ -48,6 +48,11 @@ type HistoryEntry struct {
 }
 
 // PSIResult holds a single PageSpeed Insights result for one URL.
+//
+// PerformanceScore is stored as a 0 to 1 float to match Lighthouse's
+// native output (e.g. 0.77 = 77/100). Presenters multiply by 100 at
+// render time. All sageo code that reads or writes PerformanceScore
+// must use this canonical form.
 type PSIResult struct {
 	URL              string  `json:"url"`
 	PerformanceScore float64 `json:"performance_score"`

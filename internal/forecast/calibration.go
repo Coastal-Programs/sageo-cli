@@ -367,6 +367,33 @@ func Tier(point int, label string) state.PriorityTier {
 	}
 }
 
+// TierWithRulePriority is Tier but, when calibration is insufficient and
+// the raw point estimate is small, falls back to the upstream rule-engine
+// priority score (0-100) instead of returning PriorityUnknown. This keeps
+// reports useful on cold sites that have no historical calibration data
+// yet but still have signal from the deterministic rule layer.
+//
+// Mapping (insufficient-data fallback only):
+//   - rulePriority >= 80 -> PriorityHigh
+//   - rulePriority >= 50 -> PriorityMedium
+//   - rulePriority >   0 -> PriorityLow
+//   - rulePriority <=  0 -> PriorityUnknown
+func TierWithRulePriority(point int, label string, rulePriority int) state.PriorityTier {
+	if label == ConfidenceInsufficient && point < TierHighThreshold {
+		switch {
+		case rulePriority >= 80:
+			return state.PriorityHigh
+		case rulePriority >= 50:
+			return state.PriorityMedium
+		case rulePriority > 0:
+			return state.PriorityLow
+		default:
+			return state.PriorityUnknown
+		}
+	}
+	return Tier(point, label)
+}
+
 // widenLow returns the lower bound of a widened range as an int, floored
 // at zero.
 func widenLow(point int, factor float64) int {

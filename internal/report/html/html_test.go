@@ -2,6 +2,8 @@ package html
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -218,6 +220,147 @@ func TestPriorityClass(t *testing.T) {
 		if got := priorityClass(p); got != want {
 			t.Errorf("priorityClass(%d) = %s, want %s", p, got, want)
 		}
+	}
+}
+
+// TestTemplates_NoEmOrEnDashes guards against em dashes (U+2014) and
+// en dashes (U+2013) creeping back into template files. Sageo's house
+// style uses colons, commas, or sentence breaks instead.
+func TestTemplates_NoEmOrEnDashes(t *testing.T) {
+	root := "templates"
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read templates dir: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(root, e.Name())
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		s := string(data)
+		if strings.ContainsRune(s, '\u2014') {
+			t.Errorf("%s contains em dash (U+2014); use ':' or ',' instead", p)
+		}
+		if strings.ContainsRune(s, '\u2013') {
+			t.Errorf("%s contains en dash (U+2013); use 'to' or '-' instead", p)
+		}
+	}
+}
+
+// TestRender_NoEmOrEnDashesInOutput guards the rendered report itself,
+// using a fixture that exercises Finding.Why / Recommendation.Rationale /
+// Evidence.Description so strings coming from internal/merge and
+// internal/audit are actually rendered.
+func TestRender_NoEmOrEnDashesInOutput(t *testing.T) {
+	st := populatedState()
+	// Force rendering of Finding.Why and Evidence.Description strings so
+	// any em/en dashes originating in merge.go / audit/checker.go would
+	// appear in the output.
+	st.Findings = append(st.Findings, state.Finding{
+		Rule: "slow-core-web-vitals", URL: "https://example.com/x", Verdict: "high",
+		Why: "Page has fewer than 300 words but ranks at position 4.5: content expansion can defend this ranking",
+		Fix: "Expand the article to 900+ words.",
+	})
+	var buf bytes.Buffer
+	if err := Render(st, &buf, Options{IncludeAppendix: true}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	s := buf.String()
+	if strings.ContainsRune(s, '\u2014') {
+		t.Error("rendered HTML contains em dash (U+2014)")
+	}
+	if strings.ContainsRune(s, '\u2013') {
+		t.Error("rendered HTML contains en dash (U+2013)")
+	}
+}
+
+// TestRender_PSIScoreRendersInRange ensures PSI performance score is
+// rendered in the 0-100 range, not 0-10000. Guards against the bug where
+// pctPerf multiplied a 0-100 value by 100.
+func TestRender_PSIScoreRendersInRange(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	// Populated state has PerformanceScore=0.62, so rendered value should
+	// be 62, not 6200 or 0.62.
+	// Populated fixture has PerformanceScore=0.62 which should render
+	// as 62. The pre-normalisation bug rendered it as 6200.
+	body := buf.String()
+	if strings.Contains(body, ">6200<") || strings.Contains(body, "6200ms") {
+		t.Error("PSI performance score appears mis-scaled (6200 instead of 62)")
+	}
+	// Also ensure the canonical rendered value is present somewhere.
+	if !regexp.MustCompile(`>\s*62\s*<`).MatchString(body) {
+		t.Error("expected perf score 62 to appear in rendered HTML")
+	}
+}
+
+// TestRender_GaugeSVGPresent checks the cover gauges are inline SVGs.
+func TestRender_GaugeSVGPresent(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, "<svg") {
+		t.Error("expected inline SVG (gauges) in rendered HTML")
+	}
+	if !strings.Contains(body, "class=\"gauge\"") {
+		t.Error("expected .gauge component class in rendered HTML")
+	}
+}
+
+// TestRender_CWVBandClassesPresent asserts the Core Web Vitals band
+// classes appear when a fixture page has poor vitals.
+func TestRender_CWVBandClassesPresent(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := buf.String()
+	// Fixture: LCP=3800 (needs), CLS=0.18 (needs), Perf=0.62 (needs).
+	if !strings.Contains(body, "cwv-band-needs") {
+		t.Error("expected cwv-band-needs class for 3800ms LCP / 0.18 CLS fixture")
+	}
+}
+
+// TestRender_PriorityDistributionBarPresent ensures the stacked bar is
+// rendered and uses flex ratios matching tier counts.
+func TestRender_PriorityDistributionBarPresent(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, "priority-bar") {
+		t.Error("expected priority-bar component in rendered HTML")
+	}
+}
+
+// TestRender_QuickWinsConditional asserts the Quick Wins section only
+// appears when at least one recommendation qualifies (priority>=70 and
+// effort<=30). The populated fixture has rec-1 at priority 90, effort 15,
+// which qualifies.
+func TestRender_QuickWinsConditional(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Quick wins") {
+		t.Error("expected Quick wins section for populated fixture")
+	}
+
+	var buf2 bytes.Buffer
+	if err := Render(minimalState(), &buf2, Options{}); err != nil {
+		t.Fatalf("render minimal: %v", err)
+	}
+	if strings.Contains(buf2.String(), "Quick wins") {
+		t.Error("Quick wins should be absent when no eligible recommendations exist")
 	}
 }
 

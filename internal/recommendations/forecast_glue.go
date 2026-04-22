@@ -74,6 +74,16 @@ func AttachForecastsWithBaseDir(st *state.State, recs []Recommendation, baseDir 
 		}
 
 		adjusted := forecast.Adjust(raw, profile, string(rec.ChangeType))
+		// When calibration is insufficient, fall back to the rule-engine
+		// priority so reports on cold sites still show High/Medium/Low
+		// instead of UNKNOWN for every recommendation.
+		if adjusted.ConfidenceLabel == forecast.ConfidenceInsufficient {
+			point := adjusted.RawEstimate
+			if adjusted.CalibratedEstimate != nil {
+				point = *adjusted.CalibratedEstimate
+			}
+			adjusted.PriorityTier = forecast.TierWithRulePriority(point, adjusted.ConfidenceLabel, rec.Priority)
+		}
 		rec.ForecastedLift = &adjusted
 	}
 }

@@ -37,8 +37,8 @@ func TestParseResponse(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.PerformanceScore != 85 {
-		t.Errorf("expected score 85, got %v", result.PerformanceScore)
+	if result.PerformanceScore != 0.85 {
+		t.Errorf("expected score 0.85, got %v", result.PerformanceScore)
 	}
 	if result.FCP != 1200 {
 		t.Errorf("expected FCP 1200, got %v", result.FCP)
@@ -85,8 +85,8 @@ func TestRunSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PerformanceScore != 90 {
-		t.Errorf("expected score 90, got %v", result.PerformanceScore)
+	if result.PerformanceScore != 0.9 {
+		t.Errorf("expected score 0.9, got %v", result.PerformanceScore)
 	}
 	if result.Strategy != "desktop" {
 		t.Errorf("expected strategy desktop, got %v", result.Strategy)

@@ -2,24 +2,23 @@
 <section class="page-break">
   <h1>Forecast Summary</h1>
   <p class="section-summary">
-    Recommendations bucketed by priority tier — the primary signal we stand behind.
+    Recommendations bucketed by priority tier: the primary signal we stand behind.
     Specific click numbers are a supporting estimate, not a promise.
   </p>
-  <p class="section-summary">
-    <strong>{{.TierHighCount}}</strong> high-priority ·
-    <strong>{{.TierMediumCount}}</strong> medium ·
-    <strong>{{.TierLowCount}}</strong> low ·
-    <strong>{{.TierUnknownCount}}</strong> unknown.
+
+  {{template "priorityDistribution" .}}
+
+  <p class="section-summary small">
     Combined estimated range across all {{.RecCount}} recommendations:
-    <strong>{{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}} clicks/mo</strong>.
+    <strong>{{formatInt .ForecastLow}} to {{formatInt .ForecastHigh}} clicks/mo</strong>.
     {{if .HasCalibration}}
       Calibrated against {{.CalibrationSamples}} past outcome{{if ne .CalibrationSamples 1}}s{{end}}.
     {{else}}
-      <span class="muted">(no historical calibration data yet — ranges reflect model uncertainty only)</span>
+      <span class="muted">(no historical calibration data yet: ranges reflect model uncertainty only)</span>
     {{end}}
   </p>
   {{if .ForecastRows}}
-  <table class="sortable">
+  <table class="sortable zebra">
     <thead>
       <tr>
         <th data-type="num">#</th>
@@ -27,7 +26,7 @@
         <th data-type="str">Query</th>
         <th data-type="str">Change</th>
         <th data-type="str">Priority</th>
-        <th data-type="str">Estimated range</th>
+        <th data-type="num">Estimated range</th>
         <th data-type="str">Caveats</th>
         <th data-type="str">Effort</th>
       </tr>
@@ -35,13 +34,13 @@
     <tbody>
     {{range .ForecastRows}}
       <tr>
-        <td data-v="{{.Index}}">{{.Index}}</td>
-        <td data-v="{{.URL}}" class="mono">{{truncate .URL 60}}</td>
-        <td data-v="{{.Query}}">{{if .Query}}{{truncate .Query 40}}{{else}}—{{end}}</td>
+        <td class="num" data-v="{{.Index}}">{{.Index}}</td>
+        <td data-v="{{.URL}}" class="mono" title="{{.URL}}">{{truncate .URL 60}}</td>
+        <td data-v="{{.Query}}">{{if .Query}}{{truncate .Query 40}}{{else}}.{{end}}</td>
         <td data-v="{{.ChangeType}}">{{.ChangeType}}</td>
-        <td data-v="{{.TierLabel}}"><span class="badge {{.TierClass}}">{{.TierLabel}}</span></td>
-        <td data-v="{{.LiftEst}}">{{.LiftRange}}</td>
-        <td data-v="{{.Caveats}}" class="small muted">{{if .Caveats}}{{.Caveats}}{{else}}—{{end}}</td>
+        <td data-v="{{.TierLabel}}"><span class="badge {{.TierClass}}"><span class="badge-icon" aria-hidden="true">{{tierIcon .TierLabel}}</span>{{.TierLabel}}</span></td>
+        <td class="num" data-v="{{.LiftEst}}">{{.LiftRange}}</td>
+        <td data-v="{{.Caveats}}" class="small muted">{{if .Caveats}}{{.Caveats}}{{else}}.{{end}}</td>
         <td data-v="{{.Effort}}">{{.Effort}}</td>
       </tr>
     {{end}}

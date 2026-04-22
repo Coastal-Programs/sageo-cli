@@ -147,7 +147,7 @@ func TestRecsSlowCoreWebVitals(t *testing.T) {
 	)
 	st.PSI = &state.PSIData{
 		LastRun: "2025-01-01T00:00:00Z",
-		Pages:   []state.PSIResult{{URL: url, PerformanceScore: 30, LCP: 5000, CLS: 0.05, Strategy: "mobile"}},
+		Pages:   []state.PSIResult{{URL: url, PerformanceScore: 0.30, LCP: 5000, CLS: 0.05, Strategy: "mobile"}},
 	}
 	findings := Run(st)
 	recs := GenerateRecommendations(st, findings)

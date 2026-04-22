@@ -1,0 +1,77 @@
+{{/*
+  Reusable template partials for the sageo HTML report.
+
+  Every visual element here is dependency-free: inline SVG, CSS-only
+  layouts, ARIA labels for accessibility. Colour is never the sole
+  signal; icons or text labels always accompany colour bands so the
+  report stays readable in print and for colour-blind users.
+*/}}
+
+{{/*
+  gauge renders a circular SVG progress ring. Expects a dict with:
+    .Value (0-100 int or float), .Label (string), .Size (px, int).
+  Colour band: 0-49 red, 50-89 amber, 90-100 green.
+*/}}
+{{define "gauge"}}
+{{- $v := .Value -}}
+{{- $size := .Size -}}
+{{- if eq $size 0 -}}{{- $size = 120 -}}{{- end -}}
+<div class="gauge" role="img" aria-label="{{.Label}}: {{printf "%.0f" .Value}} out of 100">
+  <svg width="{{$size}}" height="{{$size}}" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="60" cy="60" r="52" fill="none" stroke="#E5E7EB" stroke-width="10"/>
+    <circle cx="60" cy="60" r="52" fill="none" stroke="{{gaugeColor $v}}" stroke-width="10"
+      stroke-dasharray="{{gaugeDashArray $v}}" stroke-dashoffset="0" stroke-linecap="round"
+      transform="rotate(-90 60 60)"/>
+    <text x="60" y="62" text-anchor="middle" dominant-baseline="middle"
+      font-size="30" font-weight="700" fill="{{gaugeColor $v}}">{{printf "%.0f" $v}}</text>
+    <text x="60" y="84" text-anchor="middle" dominant-baseline="middle"
+      font-size="10" fill="#6B7280" letter-spacing="0.5">/ 100</text>
+  </svg>
+  <div class="gauge-label">{{.Label}}</div>
+</div>
+{{end}}
+
+{{/*
+  tierBadge renders a priority-tier pill with an icon prefix so colour
+  is never the sole signal. Expects a recView (has .TierLabel, .TierClass).
+*/}}
+{{define "tierBadge"}}
+<span class="badge {{.TierClass}}" aria-label="Priority tier {{.TierLabel}}">
+  <span class="badge-icon" aria-hidden="true">{{tierIcon .TierLabel}}</span>{{.TierLabel}}{{if .IsProvisional}} <span class="provisional">(provisional)</span>{{end}}
+</span>
+{{end}}
+
+{{/*
+  priorityDistribution renders a horizontal stacked bar showing the
+  proportional split of recommendations across priority tiers.
+  Expects the root viewModel (has TierHighCount, TierMediumCount, etc).
+*/}}
+{{define "priorityDistribution"}}
+{{- $total := priorityTotal . -}}
+{{- if gt $total 0 -}}
+<div class="priority-bar" role="img"
+  aria-label="{{.TierHighCount}} high, {{.TierMediumCount}} medium, {{.TierLowCount}} low, {{.TierUnknownCount}} unknown">
+  {{if .TierHighCount}}<span class="seg tier-high" style="flex: {{.TierHighCount}};" title="{{.TierHighCount}} high">{{.TierHighCount}}</span>{{end}}
+  {{if .TierMediumCount}}<span class="seg tier-medium" style="flex: {{.TierMediumCount}};" title="{{.TierMediumCount}} medium">{{.TierMediumCount}}</span>{{end}}
+  {{if .TierLowCount}}<span class="seg tier-low" style="flex: {{.TierLowCount}};" title="{{.TierLowCount}} low">{{.TierLowCount}}</span>{{end}}
+  {{if .TierUnknownCount}}<span class="seg tier-unknown" style="flex: {{.TierUnknownCount}};" title="{{.TierUnknownCount}} unknown">{{.TierUnknownCount}}</span>{{end}}
+</div>
+<div class="priority-bar-legend small muted">
+  <span><span class="dot tier-high"></span>{{.TierHighCount}} high</span>
+  <span><span class="dot tier-medium"></span>{{.TierMediumCount}} medium</span>
+  <span><span class="dot tier-low"></span>{{.TierLowCount}} low</span>
+  {{if .TierUnknownCount}}<span><span class="dot tier-unknown"></span>{{.TierUnknownCount}} unknown</span>{{end}}
+</div>
+{{- end -}}
+{{end}}
+
+{{/*
+  cwvCell renders a Core Web Vital cell with a coloured band behind the
+  number plus an icon so colour is not the sole signal.
+  Expects a dict: .Value (float), .Band ("good"|"needs"|"poor"), .Unit (string).
+*/}}
+{{define "cwvCell"}}
+<span class="cwv-cell cwv-band-{{.Band}}" aria-label="{{.Band}}">
+  <span class="cwv-icon" aria-hidden="true">{{bandIcon .Band}}</span>{{.Value}}{{.Unit}}
+</span>
+{{end}}

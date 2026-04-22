@@ -1,0 +1,21 @@
+{{define "quickwins.html"}}
+{{if .QuickWins}}
+<section class="page-break quick-wins">
+  <h1>Quick wins</h1>
+  <p class="section-summary">
+    Highest impact per effort. Each of these is priority 70 or higher and takes 30 minutes or less to implement. Start here.
+  </p>
+  {{range .QuickWins}}
+    <div class="rec-card rec-card-compact quick-win">
+      <div class="rec-head">
+        {{template "tierBadge" .}}
+        <span class="title">{{.R.ChangeType}} <span class="url" title="{{.R.TargetURL}}">{{truncate .R.TargetURL 80}}</span></span>
+        {{if .ReviewBadge}}<span class="badge review-pending" aria-label="Pending review">{{.ReviewBadge}}</span>{{end}}
+        <span class="effort-pill">{{.EffortLabel}}</span>
+      </div>
+      {{if .R.Rationale}}<p class="small muted">{{truncate .R.Rationale 200}}</p>{{end}}
+    </div>
+  {{end}}
+</section>
+{{end}}
+{{end}}

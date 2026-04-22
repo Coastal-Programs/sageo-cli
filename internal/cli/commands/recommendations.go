@@ -37,7 +37,7 @@ func newRecommendationsForecastCmd(format *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
 				return output.PrintCodedError("NO_PROJECT",
-					"No project initialized — run sageo init --url <site>",
+					"No project initialized: run sageo init --url <site>",
 					nil, nil, output.Format(*format))
 			}
 			st, err := state.Load(".")
@@ -158,7 +158,7 @@ func newRecommendationsDraftCmd(format *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
 				return output.PrintCodedError("NO_PROJECT",
-					"No project initialized — run sageo init --url <site>",
+					"No project initialized: run sageo init --url <site>",
 					nil, nil, output.Format(*format))
 			}
 			cfg, err := config.Load()
@@ -365,7 +365,7 @@ func newRecommendationsListCmd(format *string) *cobra.Command {
 			if !state.Exists(".") {
 				return output.PrintCodedError(
 					"NO_PROJECT",
-					"No project initialized — run sageo init --url <site>",
+					"No project initialized: run sageo init --url <site>",
 					nil, nil, output.Format(fmtStr),
 				)
 			}
@@ -405,9 +405,9 @@ func newRecommendationsListCmd(format *string) *cobra.Command {
 							tier = strings.ToUpper(string(r.ForecastedLift.PriorityTier))
 						}
 						if r.ForecastedLift.ConfidenceLabel == "insufficient_data" {
-							rangeLine = fmt.Sprintf("~%d–%d clicks/mo (unverified)", r.ForecastedLift.Low(), r.ForecastedLift.High())
+							rangeLine = fmt.Sprintf("~%d to %d clicks/mo (unverified)", r.ForecastedLift.Low(), r.ForecastedLift.High())
 						} else {
-							rangeLine = fmt.Sprintf("%d–%d clicks/mo", r.ForecastedLift.Low(), r.ForecastedLift.High())
+							rangeLine = fmt.Sprintf("%d to %d clicks/mo", r.ForecastedLift.Low(), r.ForecastedLift.High())
 						}
 					}
 					fmt.Printf("Priority: %s  %s  %s\n", tier, r.ChangeType, r.TargetURL)

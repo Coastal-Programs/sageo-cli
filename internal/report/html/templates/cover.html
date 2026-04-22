@@ -4,22 +4,34 @@
   <h1>SEO Performance Report</h1>
   <div class="site">{{.Site}}</div>
   <div class="meta">Generated {{.GeneratedAt}}</div>
-  <div class="headline-grid">
-    <div class="headline-card">
-      <div class="label">Recommendations</div>
-      <div class="value">{{.RecCount}}</div>
-      <div class="caption">prioritised actions</div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      {{template "gauge" dict "Value" .Score "Label" "Audit score" "Size" 140}}
     </div>
-    <div class="headline-card">
-      <div class="label">Forecast monthly clicks</div>
-      <div class="value">+{{formatInt .TotalLift}}</div>
-      <div class="caption">range {{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}}</div>
+
+    {{if .HasAEOCoverage}}
+    <div class="kpi-card">
+      {{template "gauge" dict "Value" .AEOCoverage "Label" "AEO brand coverage" "Size" 140}}
     </div>
-    <div class="headline-card">
-      <div class="label">Audit score</div>
-      <div class="value">{{fmtFloat .Score 0}}<span style="font-size:16px;color:var(--fg-muted)">/100</span></div>
-      <div class="caption">{{.PagesCrawled}} pages crawled</div>
+    {{end}}
+
+    <div class="kpi-card kpi-numeric">
+      <div class="kpi-label">Recommendations</div>
+      <div class="kpi-value">{{.RecCount}}</div>
+      <div class="kpi-caption">{{.TierHighCount}} high, {{.TierMediumCount}} medium, {{.TierLowCount}} low{{if .TierUnknownCount}}, {{.TierUnknownCount}} unknown{{end}}</div>
     </div>
+
+    <div class="kpi-card kpi-numeric">
+      <div class="kpi-label">Estimated monthly lift</div>
+      <div class="kpi-value">+{{formatInt .ForecastLow}} to +{{formatInt .ForecastHigh}}</div>
+      <div class="kpi-caption">clicks per month range across all recommendations</div>
+    </div>
+  </div>
+
+  <div class="cover-footnote">
+    {{.PagesCrawled}} pages crawled. {{.IssueCount}} issues found.
+    {{if .HasCalibration}}Forecast calibrated against {{.CalibrationSamples}} past outcomes.{{else}}Forecast ranges are uncalibrated (no historical outcomes yet).{{end}}
   </div>
 </section>
 {{end}}

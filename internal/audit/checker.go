@@ -22,7 +22,7 @@ func checkTitle(page crawl.PageResult) []Issue {
 			Severity: SeverityError,
 			URL:      page.URL,
 			Message:  "Page is missing a title tag",
-			Why:      "The title tag is the most important on-page SEO element — Google uses it as the search result headline",
+			Why:      "The title tag is the most important on-page SEO element: Google uses it as the search result headline",
 			Fix:      "Add a unique, descriptive <title> under 60 characters",
 		})
 	} else if len(page.Title) > maxTitleLength {
@@ -57,7 +57,7 @@ func checkMetaDescription(page crawl.PageResult) []Issue {
 			URL:      page.URL,
 			Message:  fmt.Sprintf("Meta description exceeds %d characters (%d)", maxDescriptionLength, len(page.MetaDescription)),
 			Detail:   page.MetaDescription,
-			Why:      "Google truncates descriptions over ~160 characters — the message gets cut off",
+			Why:      "Google truncates descriptions over ~160 characters: the message gets cut off",
 			Fix:      "Shorten to under 160 characters, include a clear call to action",
 		})
 	}
@@ -78,7 +78,7 @@ func checkH1(page crawl.PageResult) []Issue {
 			Severity: SeverityError,
 			URL:      page.URL,
 			Message:  "Page is missing an H1 heading",
-			Why:      "The H1 tells Google what the page is about — missing it weakens topical relevance",
+			Why:      "The H1 tells Google what the page is about: missing it weakens topical relevance",
 			Fix:      "Add a single H1 tag with the primary keyword for the page",
 		})
 	} else if h1Count > 1 {
@@ -151,7 +151,7 @@ func checkViewport(page crawl.PageResult) []Issue {
 			Severity: SeverityError,
 			URL:      page.URL,
 			Message:  "Page is missing a viewport meta tag",
-			Why:      "Without a viewport tag, mobile devices render desktop layout — Google penalises this",
+			Why:      "Without a viewport tag, mobile devices render desktop layout: Google penalises this",
 			Fix:      "Add <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
 		}}
 	}
@@ -186,7 +186,7 @@ func checkOpenGraph(page crawl.PageResult) []Issue {
 			Severity: SeverityWarning,
 			URL:      page.URL,
 			Message:  "Page is missing og:image tag",
-			Why:      "Social shares appear without a preview image — lower click rates",
+			Why:      "Social shares appear without a preview image: lower click rates",
 			Fix:      "Add <meta property=\"og:image\" content=\"https://...\">",
 		})
 	}
@@ -214,7 +214,7 @@ func checkWordCount(page crawl.PageResult) []Issue {
 			Severity: SeverityWarning,
 			URL:      page.URL,
 			Message:  fmt.Sprintf("Page has only %d words (target: %d+)", page.WordCount, minWordCount),
-			Why:      "Thin content pages struggle to rank — Google prefers comprehensive pages",
+			Why:      "Thin content pages struggle to rank: Google prefers comprehensive pages",
 			Fix:      "Add more relevant content, answer related questions, expand on the topic",
 		}}
 	}
@@ -228,7 +228,7 @@ func checkSchema(page crawl.PageResult) []Issue {
 			Severity: SeverityInfo,
 			URL:      page.URL,
 			Message:  "Page has no structured data (JSON-LD)",
-			Why:      "Structured data enables rich results in Google — stars, FAQs, breadcrumbs",
+			Why:      "Structured data enables rich results in Google: stars, FAQs, breadcrumbs",
 			Fix:      "Add JSON-LD structured data relevant to the page type",
 		}}
 	}
@@ -285,14 +285,14 @@ func checkSchema(page crawl.PageResult) []Issue {
 		}
 	}
 
-	// Article schema on homepage is unusual — usually should be Organization/WebSite.
+	// Article schema on homepage is unusual: usually should be Organization/WebSite.
 	if isHomepage(page.URL) && (schemaSet["Article"] || schemaSet["BlogPosting"]) {
 		issues = append(issues, Issue{
 			Rule:     "schema-article-on-homepage",
 			Severity: SeverityWarning,
 			URL:      page.URL,
 			Message:  "Article schema found on the homepage",
-			Why:      "Homepages typically use Organization or WebSite schema — Article may confuse Google",
+			Why:      "Homepages typically use Organization or WebSite schema: Article may confuse Google",
 			Fix:      "Replace Article schema with Organization or WebSite schema on the homepage",
 		})
 	}
@@ -342,7 +342,7 @@ func checkMetaRobots(page crawl.PageResult) []Issue {
 				Rule:     "noindex-detected",
 				Severity: SeverityError,
 				URL:      page.URL,
-				Message:  "Page has noindex directive — Google will not index this page",
+				Message:  "Page has noindex directive: Google will not index this page",
 				Why:      "This page will not appear in search results",
 				Fix:      "Remove noindex if this page should be searchable",
 			}}
@@ -396,7 +396,7 @@ func checkDuplicateTitles(pages []crawl.PageResult) []Issue {
 				URL:      u,
 				Message:  fmt.Sprintf("Title is duplicated across %d pages", len(urls)),
 				Detail:   title,
-				Why:      "Duplicate titles confuse Google about which page to rank — they compete against each other",
+				Why:      "Duplicate titles confuse Google about which page to rank: they compete against each other",
 				Fix:      "Write a unique, specific title for each page",
 			})
 		}
@@ -470,7 +470,7 @@ func checkOrphanPages(pages []crawl.PageResult) []Issue {
 
 	var issues []Issue
 	for norm, originalURL := range crawledSet {
-		// Skip the homepage — it's the entry point and doesn't need an inbound link.
+		// Skip the homepage: it's the entry point and doesn't need an inbound link.
 		if norm == homepageNorm {
 			continue
 		}

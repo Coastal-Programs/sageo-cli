@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/audit"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
@@ -61,7 +63,7 @@ press Cmd+P (macOS) or Ctrl+P (Linux/Windows), then choose "Save as PDF".`,
 			if !state.Exists(".") {
 				return output.PrintCodedError(
 					"NO_PROJECT",
-					"No project initialized — run sageo init --url <site>",
+					"No project initialized: run sageo init --url <site>",
 					nil, nil,
 					output.Format(*format),
 				)
@@ -69,6 +71,13 @@ press Cmd+P (macOS) or Ctrl+P (Linux/Windows), then choose "Save as PDF".`,
 			s, err := state.Load(".")
 			if err != nil {
 				return output.PrintCodedError("STATE_LOAD_FAILED", "failed to load state", err, nil, output.Format(*format))
+			}
+
+			// Resolve output path. If the user didn't pass --output, default
+			// to the project's .sageo/reports/ directory so the file never
+			// lands in a random cwd.
+			if !cmd.Flags().Changed("output") {
+				outPath = defaultReportOutputPath(".", cmd.ErrOrStderr())
 			}
 
 			abs, err := filepath.Abs(outPath)
@@ -113,7 +122,7 @@ press Cmd+P (macOS) or Ctrl+P (Linux/Windows), then choose "Save as PDF".`,
 		},
 	}
 
-	cmd.Flags().StringVar(&outPath, "output", "./sageo-report.html", "Path to write the HTML file to")
+	cmd.Flags().StringVar(&outPath, "output", "", "Path to write the HTML file to (default: .sageo/reports/sageo-report-<timestamp>.html when a project is detected, else ./sageo-report.html)")
 	cmd.Flags().BoolVar(&appendix, "appendix", false, "Include raw data appendix tables")
 	cmd.Flags().StringVar(&logoPath, "logo", "", "Optional path to a PNG/JPG logo for the cover (embedded as base64)")
 	cmd.Flags().StringVar(&brandColor, "brand-color", "", "Brand colour hex (default #1E40AF)")
@@ -138,12 +147,24 @@ func newReportPDFAliasCmd(format *string, verbose *bool) *cobra.Command {
 	}
 	// Copy flags so existing invocations keep working.
 	cmd.Flags().AddFlagSet(htmlCmd.Flags())
-	// Change default output to sageo-report.html for consistency.
-	if f := cmd.Flags().Lookup("output"); f != nil {
-		f.DefValue = "./sageo-report.html"
-		_ = f.Value.Set("./sageo-report.html")
-	}
 	return cmd
+}
+
+// defaultReportOutputPath picks a sensible output path when --output is not
+// supplied. When the cwd is a sageo project (contains a .sageo/ directory),
+// it returns .sageo/reports/sageo-report-<UTC-timestamp>.html so reports
+// live with the project data. Otherwise it falls back to ./sageo-report.html
+// and emits a stderr note so users understand why.
+func defaultReportOutputPath(baseDir string, errW io.Writer) string {
+	sageoDir := filepath.Join(baseDir, state.DirName)
+	if info, err := os.Stat(sageoDir); err == nil && info.IsDir() {
+		ts := time.Now().UTC().Format("20060102-150405")
+		return filepath.Join(sageoDir, "reports", fmt.Sprintf("sageo-report-%s.html", ts))
+	}
+	if errW != nil {
+		_, _ = fmt.Fprintln(errW, "note: no .sageo/ directory detected; writing report to ./sageo-report.html")
+	}
+	return "./sageo-report.html"
 }
 
 func openInBrowser(path string) error {

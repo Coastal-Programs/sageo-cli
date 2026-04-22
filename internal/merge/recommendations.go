@@ -135,10 +135,10 @@ func GenerateRecommendations(st *state.State, findings []MergedFinding) []recomm
 // ─── per-rule generators ─────────────────────────────────────────────────────
 
 func recsRankingButNotClicking(f *MergedFinding, findingsByURL map[string][]state.Finding) []recommendations.Recommendation {
-	rationale := "Page ranks (has GSC impressions) but receives no clicks — title/meta are the primary levers for CTR."
+	rationale := "Page ranks (has GSC impressions) but receives no clicks: title/meta are the primary levers for CTR."
 	if f.GSCData != nil {
 		rationale = fmt.Sprintf(
-			"Page has %.0f impressions at avg position %.1f but CTR is %.2f%% — rewrite title and meta to lift CTR.",
+			"Page has %.0f impressions at avg position %.1f but CTR is %.2f%%: rewrite title and meta to lift CTR.",
 			f.GSCData.Impressions, f.GSCData.Position, f.GSCData.CTR*100,
 		)
 	}
@@ -159,7 +159,7 @@ func recsRankingButNotClicking(f *MergedFinding, findingsByURL map[string][]stat
 
 func recsNotIndexed(f *MergedFinding, findingsByURL map[string][]state.Finding) []recommendations.Recommendation {
 	// Describe the blocker based on crawl findings on this URL.
-	blocker := "Page absent from GSC and no noindex directive was found — likely blocked by robots.txt, canonical mismatch, or a crawl trap."
+	blocker := "Page absent from GSC and no noindex directive was found: likely blocked by robots.txt, canonical mismatch, or a crawl trap."
 	for _, cf := range findingsByURL[f.URL] {
 		switch {
 		case strings.Contains(cf.Rule, "robots"):
@@ -167,7 +167,7 @@ func recsNotIndexed(f *MergedFinding, findingsByURL map[string][]state.Finding) 
 		case strings.Contains(cf.Rule, "canonical"):
 			blocker = "Canonical tag points to a different URL, so Google may be consolidating signals away from this page."
 		case strings.Contains(cf.Rule, "redirect"):
-			blocker = "Page resolves through a redirect chain — fix the redirect target."
+			blocker = "Page resolves through a redirect chain: fix the redirect target."
 		}
 	}
 	r := newRec(f, f.URL, "", recommendations.ChangeIndexability)
@@ -208,7 +208,7 @@ func recsThinContentRankingWell(f *MergedFinding, serpByQuery map[string]*state.
 	targetWords := 800
 	r := newRec(f, f.URL, "", recommendations.ChangeBody)
 	r.Rationale = fmt.Sprintf(
-		"Page has fewer than 300 words but ranks in the top 10 — expand to at least %d words to defend and grow the ranking.",
+		"Page has fewer than 300 words but ranks in the top 10: expand to at least %d words to defend and grow the ranking.",
 		targetWords,
 	)
 	r.RecommendedValue = fmt.Sprintf("target_word_count=%d", targetWords)
@@ -223,7 +223,7 @@ func recsThinContentRankingWell(f *MergedFinding, serpByQuery map[string]*state.
 //   - Organization / Article / BreadcrumbList / Product / LocalBusiness
 //     are "confirmed" for Google AI Overviews.
 //   - FAQPage is "unclear" across every engine (Averi +28%, SE Ranking
-//     slight negative, Search Atlas no effect) — so we no longer emit it
+//     slight negative, Search Atlas no effect): so we no longer emit it
 //     as a generic schema-not-showing fix; it is reserved for the
 //     AI-Overview rule where Google's pipeline specifically indexes Q&A
 //     markup (research doc "Conflicts & open questions", FAQPage entry).
@@ -235,7 +235,7 @@ func recsSchemaNotShowing(f *MergedFinding) []recommendations.Recommendation {
 	r := newRec(f, f.URL, "", recommendations.ChangeSchema)
 	r.RecommendedValue = schemaType
 	r.Rationale = fmt.Sprintf(
-		"Schema types declared but CTR is low — add Tier-1 %s structured data and validate with the Rich Results Test. %s is confirmed to influence Google AI Overviews (developers.google.com/search/docs/appearance/structured-data/search-gallery).",
+		"Schema types declared but CTR is low: add Tier-1 %s structured data and validate with the Rich Results Test. %s is confirmed to influence Google AI Overviews (developers.google.com/search/docs/appearance/structured-data/search-gallery).",
 		schemaType, schemaType,
 	)
 	r.Evidence = gscEvidence(f.GSCData)
@@ -251,7 +251,7 @@ func recsSlowCoreWebVitals(f *MergedFinding, st *state.State) []recommendations.
 			p := &st.PSI.Pages[i]
 			if p.URL == f.URL {
 				sm := slowestMetric(p)
-				r.Rationale = fmt.Sprintf("Slowest metric: %s — %s", sm.name, sm.detail)
+				r.Rationale = fmt.Sprintf("Slowest metric: %s: %s", sm.name, sm.detail)
 				r.RecommendedValue = sm.name
 				r.Evidence = []recommendations.Evidence{
 					{Source: "psi", Metric: "performance_score", Value: p.PerformanceScore},
@@ -290,16 +290,16 @@ func recsAIOverviewEatingClicks(f *MergedFinding, serpByQuery map[string]*state.
 
 	tldr := newRec(f, f.URL, query, recommendations.ChangeTLDR)
 	tldr.RecommendedValue = "tldr_40_70_words_top_of_page"
-	tldr.Rationale = "AI Overview is absorbing clicks — add a 40-70 word direct-answer block at the top of the page. 44.2% of ChatGPT citations come from the first 30% of an article (Growth Memo, 18,012 citations)."
+	tldr.Rationale = "AI Overview is absorbing clicks: add a 40-70 word direct-answer block at the top of the page. 44.2% of ChatGPT citations come from the first 30% of an article (Growth Memo, 18,012 citations)."
 	tldr.Evidence = gscEvidence(f.GSCData)
 
 	lists := newRec(f, f.URL, query, recommendations.ChangeListFormat)
 	lists.RecommendedValue = "convert_to_list_or_table"
-	lists.Rationale = "Convert the core answer to a numbered list, bullet list, or comparison table — list/table passages extract more reliably into AI Overviews, ChatGPT Search, and Perplexity (signals matrix, Averi / Growth Memo)."
+	lists.Rationale = "Convert the core answer to a numbered list, bullet list, or comparison table: list/table passages extract more reliably into AI Overviews, ChatGPT Search, and Perplexity (signals matrix, Averi / Growth Memo)."
 
 	schema := newRec(f, f.URL, query, recommendations.ChangeSchema)
 	schema.RecommendedValue = "FAQPage"
-	schema.Rationale = "Add FAQPage structured data. Evidence is weak for direct LLM extraction (ChatGPT/Perplexity “unclear” in signals matrix) but Google's pipeline indexes Q&A markup for AI Overviews — marginal lift on Google, neutral elsewhere."
+	schema.Rationale = "Add FAQPage structured data. Evidence is weak for direct LLM extraction (ChatGPT/Perplexity “unclear” in signals matrix) but Google's pipeline indexes Q&A markup for AI Overviews: marginal lift on Google, neutral elsewhere."
 
 	author := newRec(f, f.URL, query, recommendations.ChangeAuthorByline)
 	author.RecommendedValue = "visible_byline_with_credentials_and_bio_link"
@@ -308,7 +308,7 @@ func recsAIOverviewEatingClicks(f *MergedFinding, serpByQuery map[string]*state.
 	out := []recommendations.Recommendation{tldr, lists, schema, author}
 
 	// Emit H2 recs per PAA question (up to 5) so the page covers the
-	// ground the AI Overview is summarising — H2 subheadings anchor
+	// ground the AI Overview is summarising: H2 subheadings anchor
 	// passage-level extraction across Perplexity and ChatGPT.
 	if sq != nil {
 		limit := 5
@@ -338,7 +338,7 @@ func recsFeaturedSnippetOpportunity(f *MergedFinding) []recommendations.Recommen
 	r := newRec(f, f.URL, query, recommendations.ChangeTLDR)
 	r.RecommendedValue = "definition_tldr_40_60_words"
 	r.Rationale = fmt.Sprintf(
-		"You rank in the top 10 for %q and a Featured Snippet exists — add a definition-style TL;DR (40-60 words) at the top of the page that directly answers the query. The same passage also serves AI Overview / ChatGPT citation (44.2%% of ChatGPT citations come from the first 30%% of an article, Growth Memo 2026).",
+		"You rank in the top 10 for %q and a Featured Snippet exists: add a definition-style TL;DR (40-60 words) at the top of the page that directly answers the query. The same passage also serves AI Overview / ChatGPT citation (44.2%% of ChatGPT citations come from the first 30%% of an article, Growth Memo 2026).",
 		query,
 	)
 	return []recommendations.Recommendation{r}
@@ -370,12 +370,12 @@ func recsEasyWinKeyword(f *MergedFinding) []recommendations.Recommendation {
 
 	title := newRec(f, f.URL, keyword, recommendations.ChangeTitle)
 	title.RecommendedValue = keyword
-	title.Rationale = fmt.Sprintf("Easy-win keyword %q — incorporate verbatim into the page title.", keyword)
+	title.Rationale = fmt.Sprintf("Easy-win keyword %q: incorporate verbatim into the page title.", keyword)
 	title.Evidence = gscEvidence(f.GSCData)
 
 	h1 := newRec(f, f.URL, keyword, recommendations.ChangeH1)
 	h1.RecommendedValue = keyword
-	h1.Rationale = fmt.Sprintf("Easy-win keyword %q — incorporate verbatim into the H1.", keyword)
+	h1.Rationale = fmt.Sprintf("Easy-win keyword %q: incorporate verbatim into the H1.", keyword)
 
 	return []recommendations.Recommendation{title, h1}
 }
@@ -392,7 +392,7 @@ func recsInformationalContentGap(f *MergedFinding, st *state.State) []recommenda
 	r := newRec(f, target, keyword, recommendations.ChangeBody)
 	r.CurrentValue = ""
 	r.Rationale = fmt.Sprintf(
-		"No existing page targets %q — create a new page at %s covering the query comprehensively.",
+		"No existing page targets %q: create a new page at %s covering the query comprehensively.",
 		keyword, target,
 	)
 	r.RecommendedValue = fmt.Sprintf("new_page_slug=%s", slug)
@@ -410,7 +410,7 @@ func recsWeakBacklinkProfile(f *MergedFinding, st *state.State) []recommendation
 		targets = targets[:topN]
 	}
 	if len(targets) == 0 {
-		// No gap data — emit a single generic rec on the site itself.
+		// No gap data: emit a single generic rec on the site itself.
 		r := newRec(f, f.URL, "", recommendations.ChangeBacklink)
 		r.Rationale = "Backlink profile is weak relative to keyword difficulty. Run `sageo backlinks gap` to identify outreach targets."
 		return []recommendations.Recommendation{r}
@@ -419,7 +419,7 @@ func recsWeakBacklinkProfile(f *MergedFinding, st *state.State) []recommendation
 	for _, domain := range targets {
 		r := newRec(f, f.URL, domain, recommendations.ChangeBacklink)
 		r.RecommendedValue = domain
-		r.Rationale = fmt.Sprintf("Outreach target: %s — competitors have a link from this domain but you don't.", domain)
+		r.Rationale = fmt.Sprintf("Outreach target: %s: competitors have a link from this domain but you don't.", domain)
 		r.Evidence = []recommendations.Evidence{
 			{Source: "backlinks", Metric: "gap_domain", Value: domain},
 		}

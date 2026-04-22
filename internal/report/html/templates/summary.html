@@ -1,27 +1,32 @@
 {{define "summary.html"}}
 <section class="page-break">
   <h1>Executive Summary</h1>
-  <p class="section-summary">
-    Audit score: <strong>{{fmtFloat .Score 0}} / 100</strong>.
-    Pages crawled: <strong>{{.PagesCrawled}}</strong>.
-    Issues found: <strong>{{.IssueCount}}</strong>.
-    Recommendations: <strong>{{.RecCount}}</strong>
-    (<strong>{{.TierHighCount}}</strong> high · <strong>{{.TierMediumCount}}</strong> medium · <strong>{{.TierLowCount}}</strong> low{{if .TierUnknownCount}} · <strong>{{.TierUnknownCount}}</strong> unknown{{end}}).
-    Estimated combined uplift: <strong>{{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}} clicks/mo</strong>
-    {{if .HasCalibration}}(calibrated against {{.CalibrationSamples}} past outcomes){{else}}<span class="muted">(uncalibrated — no historical outcomes yet)</span>{{end}}.
-    {{if .HasAEOCoverage}}AEO brand coverage: <strong>{{pct .AEOCoverage}}</strong>.{{end}}
-  </p>
-  <p class="muted small">
-    Priority tier is the primary signal — it's what the tool stands behind. Specific click numbers are a supporting estimate subject to the calibration caveat noted on each recommendation.
-  </p>
+
+  <div class="section-summary">
+    <strong>Audit:</strong> {{fmtFloat .Score 0}} / 100 across {{.PagesCrawled}} pages, {{.IssueCount}} issues.
+    <strong>Recommendations:</strong> {{.RecCount}}.
+    <strong>Combined estimated uplift:</strong> {{formatInt .ForecastLow}} to {{formatInt .ForecastHigh}} clicks/mo
+    {{if .HasCalibration}}(calibrated against {{.CalibrationSamples}} past outcomes).{{else}}(uncalibrated, no historical outcomes yet).{{end}}
+    {{if .HasAEOCoverage}}<strong>AEO brand coverage:</strong> {{pct .AEOCoverage}}.{{end}}
+  </div>
+
+  <h2>Priority distribution</h2>
+  {{template "priorityDistribution" .}}
+
+  <div class="callout">
+    <strong>How to read this report.</strong> The priority tier (high, medium, low) is the primary signal the tool stands behind. Specific click numbers are a supporting estimate subject to model uncertainty, shown as ranges. Forecast caveats apply to the whole report: we note them once here rather than on every card.
+    {{if not .HasCalibration}}
+    No historical calibration data has been gathered yet. Ranges widen to reflect that uncertainty, and some tiers are marked <em>provisional</em>: they come from the rule-engine priority score rather than calibrated click forecasts.
+    {{end}}
+  </div>
 
   <h2>Top 5 recommendations</h2>
   {{if .TopRecs}}
     {{range .TopRecs}}
-      <div class="rec-card">
+      <div class="rec-card rec-card-compact">
         <div class="rec-head">
-          <span class="badge {{.TierClass}}" aria-label="Priority tier {{.TierLabel}}">{{.TierLabel}}</span>
-          <span class="title">{{.R.ChangeType}} <span class="url">{{truncate .R.TargetURL 80}}</span></span>
+          {{template "tierBadge" .}}
+          <span class="title">{{.R.ChangeType}} <span class="url" title="{{.R.TargetURL}}">{{truncate .R.TargetURL 80}}</span></span>
           {{if .ReviewBadge}}<span class="badge review-pending">{{.ReviewBadge}}</span>{{end}}
         </div>
         <p class="small">{{.TierHeadline}}</p>

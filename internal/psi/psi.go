@@ -22,6 +22,10 @@ type Client struct {
 }
 
 // Result holds the extracted Core Web Vitals from a PSI response.
+//
+// PerformanceScore is stored as a 0 to 1 float to match Lighthouse's
+// native output. Presenters multiply by 100 at render time. All sageo
+// code that touches PerformanceScore must use this canonical form.
 type Result struct {
 	URL              string  `json:"url"`
 	PerformanceScore float64 `json:"performance_score"`
@@ -138,7 +142,7 @@ func parseResponse(body []byte, targetURL, strategy string) (*Result, error) {
 	audits := raw.LighthouseResult.Audits
 	return &Result{
 		URL:              targetURL,
-		PerformanceScore: raw.LighthouseResult.Categories.Performance.Score * 100,
+		PerformanceScore: raw.LighthouseResult.Categories.Performance.Score,
 		FCP:              audits["first-contentful-paint"].NumericValue,
 		LCP:              audits["largest-contentful-paint"].NumericValue,
 		CLS:              audits["cumulative-layout-shift"].NumericValue,

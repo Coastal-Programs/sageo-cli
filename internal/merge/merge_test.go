@@ -199,7 +199,7 @@ func TestSlowCoreWebVitals(t *testing.T) {
 	st.PSI = &state.PSIData{
 		LastRun: "2025-01-01T00:00:00Z",
 		Pages: []state.PSIResult{
-			{URL: pageURL, PerformanceScore: 28, LCP: 6500, CLS: 0.05, Strategy: "mobile"},
+			{URL: pageURL, PerformanceScore: 0.28, LCP: 6500, CLS: 0.05, Strategy: "mobile"},
 		},
 	}
 
@@ -235,7 +235,7 @@ func TestSlowCoreWebVitalsNoFire(t *testing.T) {
 	st.PSI = &state.PSIData{
 		LastRun: "2025-01-01T00:00:00Z",
 		Pages: []state.PSIResult{
-			{URL: pageURL, PerformanceScore: 20, LCP: 7000, CLS: 0.3, Strategy: "mobile"},
+			{URL: pageURL, PerformanceScore: 0.20, LCP: 7000, CLS: 0.3, Strategy: "mobile"},
 		},
 	}
 
@@ -259,7 +259,7 @@ func TestSlowCoreWebVitalsGoodScore(t *testing.T) {
 	st.PSI = &state.PSIData{
 		LastRun: "2025-01-01T00:00:00Z",
 		Pages: []state.PSIResult{
-			{URL: pageURL, PerformanceScore: 72, LCP: 1800, CLS: 0.02, Strategy: "mobile"},
+			{URL: pageURL, PerformanceScore: 0.72, LCP: 1800, CLS: 0.02, Strategy: "mobile"},
 		},
 	}
 

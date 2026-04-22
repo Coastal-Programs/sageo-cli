@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/report/html"
@@ -292,6 +293,20 @@ func writeSnapshot(cfg Config, res *Result, runErr error) {
 	}
 	if cfg.Verbose {
 		_, _ = fmt.Fprintf(cfg.Out, "[snapshot] wrote %s\n", snap.Dir)
+	}
+
+	// Mirror the snapshot report to .sageo/reports/latest.html so the
+	// most-recent report is always at a predictable path for convenience.
+	if len(reportHTML) > 0 {
+		reportsDir := filepath.Join(cfg.WorkDir, state.DirName, "reports")
+		if err := os.MkdirAll(reportsDir, 0o755); err == nil {
+			latest := filepath.Join(reportsDir, "latest.html")
+			if err := os.WriteFile(latest, reportHTML, 0o644); err != nil {
+				_, _ = fmt.Fprintf(cfg.Out, "[snapshot] mirror latest.html failed: %v\n", err)
+			} else if cfg.Verbose {
+				_, _ = fmt.Fprintf(cfg.Out, "[snapshot] mirrored %s\n", latest)
+			}
+		}
 	}
 
 	// Auto-prune after successful creation.

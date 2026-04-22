@@ -77,7 +77,7 @@ func newPSIRunCmd(format *string, verbose *bool) *cobra.Command {
 					}
 					upsertPSIResult(st.PSI, psiResult)
 					st.PSI.LastRun = time.Now().UTC().Format(time.RFC3339)
-					st.AddHistory("psi.run", fmt.Sprintf("url=%s strategy=%s score=%.0f", result.URL, result.Strategy, result.PerformanceScore))
+					st.AddHistory("psi.run", fmt.Sprintf("url=%s strategy=%s score=%.0f", result.URL, result.Strategy, result.PerformanceScore*100))
 					_ = st.Save(".")
 				}
 			}

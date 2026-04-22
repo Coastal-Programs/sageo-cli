@@ -38,7 +38,7 @@ type GSCMetrics struct {
 
 // Run compares crawl findings with GSC, SERP, and Labs data in the given state
 // and returns cross-source findings. Only crawl data is required; GSC, SERP,
-// and Labs data are optional — rules that depend on absent data simply won't fire.
+// and Labs data are optional: rules that depend on absent data simply won't fire.
 func Run(st *state.State) []MergedFinding {
 	if st.LastCrawl == "" {
 		return nil
@@ -155,7 +155,7 @@ func Run(st *state.State) []MergedFinding {
 				Sources:     []string{"crawl", "gsc"},
 				CrawlIssues: issues,
 				Verdict:     "medium",
-				Why:         "Page found in crawl with no noindex directive but has zero GSC impressions — may not be indexed",
+				Why:         "Page found in crawl with no noindex directive but has zero GSC impressions: may not be indexed",
 				Fix:         "Submit URL to Google via Search Console, check for crawl blocks, and ensure internal links point to this page",
 			})
 		}
@@ -172,7 +172,7 @@ func Run(st *state.State) []MergedFinding {
 				CrawlIssues: issues,
 				GSCData:     gsc,
 				Verdict:     "high",
-				Why:         fmt.Sprintf("Page gets %.0f clicks but has %d crawl issue(s) — fixing these protects existing traffic", gsc.Clicks, len(issues)),
+				Why:         fmt.Sprintf("Page gets %.0f clicks but has %d crawl issue(s): fixing these protects existing traffic", gsc.Clicks, len(issues)),
 				Fix:         "Prioritize fixing crawl issues on this page since it already receives organic traffic",
 			})
 		}
@@ -189,7 +189,7 @@ func Run(st *state.State) []MergedFinding {
 				CrawlIssues: crawlIssuesByURL[normURL],
 				GSCData:     gsc,
 				Verdict:     "medium",
-				Why:         fmt.Sprintf("Page has fewer than 300 words but ranks at position %.1f — content expansion can defend this ranking", gsc.Position),
+				Why:         fmt.Sprintf("Page has fewer than 300 words but ranks at position %.1f: content expansion can defend this ranking", gsc.Position),
 				Fix:         "Add more useful content, answer related questions, and expand the page to at least 600 words",
 			})
 		}
@@ -214,7 +214,7 @@ func Run(st *state.State) []MergedFinding {
 				CrawlIssues: crawlIssuesByURL[normURL],
 				GSCData:     gsc,
 				Verdict:     "low",
-				Why:         fmt.Sprintf("Page has schema types [%s] but CTR is only %.1f%% — rich results may not be appearing", strings.Join(schemas, ", "), gsc.CTR*100),
+				Why:         fmt.Sprintf("Page has schema types [%s] but CTR is only %.1f%%: rich results may not be appearing", strings.Join(schemas, ", "), gsc.CTR*100),
 				Fix:         "Validate structured data with Google's Rich Results Test and fix any errors",
 			})
 		}
@@ -224,7 +224,7 @@ func Run(st *state.State) []MergedFinding {
 	// Only fire when PSI data exists in state.
 	if len(psiByURL) > 0 {
 		for normURL, psiResult := range psiByURL {
-			if psiResult.PerformanceScore >= 50 {
+			if psiResult.PerformanceScore >= 0.5 {
 				continue
 			}
 			gsc, inGSC := gscByURL[normURL]
@@ -242,8 +242,8 @@ func Run(st *state.State) []MergedFinding {
 				GSCData: gsc,
 				Verdict: "high",
 				Why: fmt.Sprintf(
-					"Performance score is %.0f/100 — this page is losing ranking potential (%.0f GSC impressions)",
-					psiResult.PerformanceScore, gsc.Impressions,
+					"Performance score is %.0f/100 - this page is losing ranking potential (%.0f GSC impressions)",
+					psiResult.PerformanceScore*100, gsc.Impressions,
 				),
 				Fix: fmt.Sprintf(
 					"Fix %s first: %s is the primary bottleneck. Use Lighthouse or PageSpeed Insights for a full audit.",
@@ -276,7 +276,7 @@ func Run(st *state.State) []MergedFinding {
 					Position:    kw.Position,
 				},
 				Verdict: "medium",
-				Why:     fmt.Sprintf("Query %q has an AI Overview and your CTR is only %.1f%% — the AI answer is likely absorbing clicks", sq.Query, kw.CTR*100),
+				Why:     fmt.Sprintf("Query %q has an AI Overview and your CTR is only %.1f%%: the AI answer is likely absorbing clicks", sq.Query, kw.CTR*100),
 				Fix:     "Optimize content to be cited IN the AI Overview rather than competing below it. Add structured data, direct answers in the first paragraph, and authoritative sourcing.",
 			})
 		}
@@ -296,7 +296,7 @@ func Run(st *state.State) []MergedFinding {
 			// Determine our position from SERP data or GSC.
 			position := sq.OurPosition
 			if position == -1 {
-				// Not ranking — check GSC for position
+				// Not ranking: check GSC for position
 				if kw, ok := gscByKeyword[strings.ToLower(sq.Query)]; ok {
 					position = int(kw.Position)
 				}
@@ -313,7 +313,7 @@ func Run(st *state.State) []MergedFinding {
 				URL:     targetURL,
 				Sources: []string{"serp", "gsc"},
 				Verdict: "medium",
-				Why:     fmt.Sprintf("Query %q has a Featured Snippet and you rank at position %d — you can potentially capture position 0", sq.Query, position),
+				Why:     fmt.Sprintf("Query %q has a Featured Snippet and you rank at position %d: you can potentially capture position 0", sq.Query, position),
 				Fix:     "Add a direct, concise answer (40-60 words) near the top of the page, use the question as an H2, and format with lists or tables if appropriate.",
 			})
 		}
@@ -404,7 +404,7 @@ func Run(st *state.State) []MergedFinding {
 						Position:    row.Position,
 					},
 					Verdict: "high",
-					Why:     fmt.Sprintf("Keyword %q has difficulty %.0f/100, volume %d, and you rank at position %.1f — this is very winnable", row.Key, lk.Difficulty, lk.SearchVolume, row.Position),
+					Why:     fmt.Sprintf("Keyword %q has difficulty %.0f/100, volume %d, and you rank at position %.1f: this is very winnable", row.Key, lk.Difficulty, lk.SearchVolume, row.Position),
 					Fix:     "Expand and improve the content targeting this keyword. Add more depth, answer related questions, improve internal linking to this page.",
 				})
 			}
@@ -488,7 +488,7 @@ func Run(st *state.State) []MergedFinding {
 				URL:     st.Backlinks.Target,
 				Sources: []string{"backlinks", "labs"},
 				Verdict: "high",
-				Why:     fmt.Sprintf("Your site has %d referring domains — most keywords you're targeting require significantly more authority to rank", referringDomains),
+				Why:     fmt.Sprintf("Your site has %d referring domains: most keywords you're targeting require significantly more authority to rank", referringDomains),
 				Fix:     "Start a link building campaign. Target directories, guest posts, and industry sites. Focus on getting dofollow links from domains with rank > 30.",
 			})
 		}
@@ -502,7 +502,7 @@ func Run(st *state.State) []MergedFinding {
 	//
 	// Evidence: signals matrix row "Explicit author byline + credentials"
 	// is marked "likely" for Google AI Overviews and Perplexity
-	// (docs/research/ai-citation-signals-2026.md) — bylines are a
+	// (docs/research/ai-citation-signals-2026.md): bylines are a
 	// distinct E-E-A-T lever not covered by the existing on-page rules.
 	for _, f := range st.Findings {
 		if f.Rule != "missing-author-byline" {
@@ -518,7 +518,7 @@ func Run(st *state.State) []MergedFinding {
 			Sources:     []string{"crawl"},
 			CrawlIssues: []string{f.Rule},
 			Verdict:     "medium",
-			Why:         "Page has no visible author byline — E-E-A-T / author-signal lever is absent, which suppresses citation eligibility on Google AI Overviews and Perplexity.",
+			Why:         "Page has no visible author byline: E-E-A-T / author-signal lever is absent, which suppresses citation eligibility on Google AI Overviews and Perplexity.",
 			Fix:         "Add a visible author name with credentials, a linked bio page, and Person structured data (sameAs Wikipedia/Wikidata where available).",
 		}
 		if gsc, ok := gscByURL[norm]; ok {
@@ -535,7 +535,7 @@ func Run(st *state.State) []MergedFinding {
 			URL:     st.Backlinks.Target,
 			Sources: []string{"backlinks"},
 			Verdict: "medium",
-			Why:     fmt.Sprintf("You have %d broken backlinks — these are wasted link equity from other sites pointing to pages that no longer exist", st.Backlinks.BrokenBacklinks),
+			Why:     fmt.Sprintf("You have %d broken backlinks: these are wasted link equity from other sites pointing to pages that no longer exist", st.Backlinks.BrokenBacklinks),
 			Fix:     "Set up 301 redirects from the broken URLs to the most relevant existing pages to recapture this link equity.",
 		})
 	}
@@ -584,11 +584,11 @@ func slowestMetric(p *state.PSIResult) metricInfo {
 			detail: fmt.Sprintf("Cumulative Layout Shift is %.2f (target <0.10)", p.CLS),
 		}
 	default:
-		// Score is poor but no single metric crossed the "poor" threshold —
+		// Score is poor but no single metric crossed the "poor" threshold:
 		// report overall score and recommend a full Lighthouse run.
 		return metricInfo{
 			name:   "overall performance",
-			detail: fmt.Sprintf("performance score is %.0f/100 — run Lighthouse for a detailed breakdown", p.PerformanceScore),
+			detail: fmt.Sprintf("performance score is %.0f/100 - run Lighthouse for a detailed breakdown", p.PerformanceScore*100),
 		}
 	}
 }
