@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-22
+
+### Added
+- **Autonomous pipeline** — new `sageo run <url>` command (`internal/pipeline`, `internal/cli/commands/run.go`) that drives crawl → audit → GSC → PSI → SERP → Labs → backlinks → AEO → merge → recommendations → draft → forecast in a single invocation. Flags: `--budget`, `--skip`, `--only`, `--max-pages`, `--prompts`, `--dry-run`, `--approve`, `--resume`. State persisted between stages so `--resume` picks up at the last successful stage.
+- **Multi-model AEO fan-out** — `sageo aeo responses` now supports `--all`, `--models`, `--tier`, `--engine`, `--model-name`, and `--concurrency` for parallel queries across ChatGPT, Claude, Gemini, Perplexity. Output shape: `data.results[]` with summed `estimated_cost`. Responses (and per-response brand mentions) upserted to `state.AEO.Responses` by prompt.
+- **AI model catalogue** — new `sageo aeo models` command backed by `internal/aeo/catalogue.go`. Loads the live DataForSEO AI optimization model list with 7-day disk cache.
+- **Brand mention detection** — new `sageo aeo mentions` command group with `scan` (Layer A: offline scan of stored AEO responses, free), `search`, `top-pages`, `top-domains` (Layer B: DataForSEO LLM Mentions API). Packages: `internal/aeo/mentions`, `internal/aeo/llmmentions`.
+- **Brand terms in state** — `sageo init --brand "Name,alias"` persists project-level brand terms to `state.BrandTerms`; consumed by the mentions scanner.
+- **Recommendation engine** — merge rules now emit concrete `state.Recommendation` objects (one per `ChangeType`: `title`, `meta_description`, `h1`, `h2_add`, `schema_add`, `body_expand`, `internal_link_add`, `speed_fix`, `backlink_outreach`, `indexability_fix`). Stable hashed IDs via `recommendations.ID`, upserted via `recommendations.UpsertRecommendations`. Package: `internal/recommendations`. Type aliases avoid cycles with `internal/state`.
+- **`sageo recommendations list`** — list stored recommendations sorted by priority, with `--url`, `--type`, `--top`, `--format` filters.
+- **LLM copy drafter** — new `sageo recommendations draft` command fills empty `RecommendedValue` fields with LLM-drafted copy (titles, meta descriptions, H1s, H2s, body paragraphs, JSON-LD schema), validated against SERP length limits with retry. Flags: `--provider anthropic|openai`, `--url`, `--type`, `--limit`, `--dry-run`. Packages: `internal/llm`, `internal/llm/anthropic` (Anthropic Messages API, `claude-sonnet-4-6`), `internal/llm/openai` (OpenAI Chat Completions, `gpt-5`), `internal/llm/providers` (side-effect registry).
+- **Click-lift forecaster** — new `sageo recommendations forecast` command and `internal/forecast` package. Uses the Advanced Web Ranking 2024 position→CTR curve (swappable via `forecast.SetCurve`) to attach `state.Forecast { estimated_monthly_clicks_delta, confidence_low, confidence_high, method }` to every stored recommendation. Exposed programmatically via `recommendations.AttachForecasts`.
+- **PDF report** — new `sageo report pdf` command (`internal/report/pdf`) renders a styled client-ready PDF: cover, executive summary, per-source "what's broken" sections, recommendation cards with evidence, forecast table, and optional raw-data appendix. Flags: `--output`, `--logo`, `--brand-color`, `--appendix`.
+- **Test isolation guardrails** — new `internal/common/testutil` package with `NewFakeDataForSEO`, `NewFakeAnthropic`, `NewFakeOpenAI`, `NewFakePSI` helpers. New `scripts/check-no-live-tests.sh` blocks unit tests from touching the network, wired into `make test` via `make check-tests`.
+- **Opt-in integration tests** — new `make test-integration` / `make test-all` targets. Integration tests require both the `integration` build tag and `SAGEO_LIVE_TESTS=1`. Coverage for DataForSEO, PSI, Anthropic, and OpenAI live smoke tests.
+- **New env vars**: `SAGEO_LLM_PROVIDER` (default `anthropic`), `SAGEO_ANTHROPIC_API_KEY`, `SAGEO_OPENAI_API_KEY`, `SAGEO_LIVE_TESTS`.
+
+### Changed
+- `sageo aeo responses` moved from `--model` (single, required) to an engine/model selector with multiple modes (`--engine`, `--all`, `--models`, `--tier`); single-engine usage remains backward-compatible when `--engine` is supplied explicitly.
+- Data flow in `ARCHITECTURE.md` extended to include AEO, recommendations, draft, forecast, and PDF stages.
+- `TESTING.md` and `CLAUDE.md` updated to document the unit/integration test split and new validation targets.
+
+### Fixed
+- Unit tests no longer hit paid APIs accidentally — guarded by `scripts/check-no-live-tests.sh` and factored through `internal/common/testutil` fakes.
+
 ## [0.5.0] - 2026-04-05
 
 ### Added

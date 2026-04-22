@@ -2,9 +2,10 @@
 
 ## Scope
 
-The CLI has working crawl, audit, report, provider, auth, GSC, PSI, SERP, AEO, GEO, Labs, backlinks, merge, and opportunities services.
+The CLI has working crawl, audit, report (JSON + PDF), provider, auth, GSC, PSI, SERP, AEO (multi-model + mentions), GEO, Labs, backlinks, merge, recommendations (merge → draft → forecast), LLM drafting (Anthropic/OpenAI), click-lift forecasting, autonomous pipeline (`sageo run`), and opportunities services.
 
 ### Implemented
+- **Autonomous run** — `sageo run <url>` drives the full pipeline end-to-end in a single command: crawl → audit → GSC → PSI → Labs → SERP → backlinks → AEO fan-out → mentions scan → merge → recommendations → LLM draft → forecast. Flags: `--budget`, `--skip`, `--only`, `--max-pages`, `--prompts`, `--dry-run`, `--approve`, `--resume`. Orchestrated by `internal/pipeline`; state persisted between stages so a failure can be resumed with `--resume`.
 - BFS website crawler with depth/page limits and concurrent fetching
 - SEO audit engine with rule-based checks and scoring
 - JSON report generation and storage
@@ -20,6 +21,9 @@ The CLI has working crawl, audit, report, provider, auth, GSC, PSI, SERP, AEO, G
 - SERP batch analysis via DataForSEO Standard queue ($0.0006/keyword, up to 100 keywords)
 - SERP data persistence to state.json (features, related questions, top domains, our position)
 - AEO and GEO command groups backed by DataForSEO
+- Brand mention detection — Layer A (offline scan of stored AEO responses for brand terms) and Layer B (DataForSEO LLM Mentions API: search, top-pages, top-domains, aggregated-metrics) via `sageo aeo mentions`
+- Project-level brand terms persisted in `state.BrandTerms` (set via `sageo init --brand "Name,alias"`); MentionsData upsert-by-term (including `aeo models` for the live model catalogue, cached on disk for 7 days)
+- Multi-model AEO responses fan-out (`sageo aeo responses --all` / `--models` / `--tier`): parallel engine queries bounded by `--concurrency`, per-row error surfacing, summed cost gate, and brand-mention storage in state under `state.AEO.Responses` (upsert by prompt)
 - Labs command group (`ranked-keywords`, `keywords`, `overview`, `competitors`, `keyword-ideas`, `bulk-difficulty`)
 - Labs keyword data persistence to state.json (difficulty, volume, intent, position)
 - Labs bulk keyword difficulty with `--from-gsc` flag to auto-load keywords from state
@@ -39,10 +43,15 @@ The CLI has working crawl, audit, report, provider, auth, GSC, PSI, SERP, AEO, G
   - Rules 10–11: Labs-aware (easy-win-keyword, informational-content-gap)
   - Rules 12–13: Backlinks-aware (weak-backlink-profile, broken-backlinks-found)
 - Priority scoring system (10–100) with automatic sorting by urgency
+- `report pdf` command renders a styled, client-ready PDF (cover, exec summary, per-source "what's broken", recommendations cards, forecast table, optional appendix)
+- Click-lift forecaster (`internal/forecast`) using the Advanced Web Ranking 2024 position→CTR curve, attached to recommendations via `recommendations.AttachForecasts` and exposed as `sageo recommendations forecast`
+- Merge rules emit concrete `Recommendation` objects (title, meta, H1, H2, schema, body, speed, backlink, indexability changes) persisted to state via `recommendations.UpsertRecommendations`
+- `sageo recommendations list` command with `--url`, `--type`, `--top`, `--format` flags
 - Interactive login flow (`sageo login`) for GSC OAuth and DataForSEO credentials
 - Default locale: Australia (location_code 2036, language `en`) for all DataForSEO calls
 - URL normalisation utilities for cross-source data joining
 - Opportunity detection merging GSC + optional SERP evidence (legacy, superseded by merge engine)
+- LLM provider abstraction (`internal/llm`) with Anthropic (Messages API, `claude-sonnet-4-6`) and OpenAI (Chat Completions, `gpt-5`) drivers, used by `sageo recommendations draft` to fill `RecommendedValue` with concrete copy (titles, meta descriptions, H1/H2s, body paragraphs, JSON-LD schema) validated against SERP length limits with retry
 
 ### Do now
 - Keep command architecture stable
@@ -76,13 +85,29 @@ The CLI has working crawl, audit, report, provider, auth, GSC, PSI, SERP, AEO, G
 - Auth package: `internal/auth`
 - GSC package: `internal/gsc`
 - PSI package: `internal/psi`
+- AEO mentions (Layer A — local): `internal/aeo/mentions`
+- AEO LLM Mentions API (Layer B — DataForSEO): `internal/aeo/llmmentions`
 - SERP package: `internal/serp` (adapters: `internal/serp/serpapi`, `internal/serp/dataforseo`)
 - DataForSEO shared client: `internal/dataforseo`
 - Opportunities package: `internal/opportunities`
+- LLM package: `internal/llm` (drivers: `internal/llm/anthropic`, `internal/llm/openai`; side-effect registry: `internal/llm/providers`)
 - Backlinks package: `internal/backlinks`
 - Merge engine: `internal/merge`
+- Recommendations: `internal/recommendations` (types aliased from `internal/state` to avoid import cycle)
 - State persistence: `internal/state`
-- Domain packages: `internal/crawl`, `internal/audit`, `internal/report`
+- Pipeline orchestrator: `internal/pipeline`
+- Domain packages: `internal/crawl`, `internal/audit`, `internal/report`, `internal/report/pdf`
+- Forecast package: `internal/forecast` (position→CTR curve, swappable via `SetCurve`)
+- Test utilities: `internal/common/testutil` (fake HTTP servers for unit tests)
+
+## Test Safety
+
+Strict separation between unit and integration tests:
+
+- **Unit tests** (default `go test ./...` / `make test`): zero network, zero cost. Use `httptest.NewServer` via `internal/common/testutil` factories, or a mock `HTTPClient`. No build tag.
+- **Integration tests** (`make test-integration`): may hit paid APIs. MUST start with `//go:build integration` and guard every test function with `if os.Getenv("SAGEO_LIVE_TESTS") != "1" { t.Skip(...) }`. Named `*_integration_test.go`.
+- `scripts/check-no-live-tests.sh` (wired via `make check-tests`, invoked by `make test`) enforces the rule.
+- See `TESTING.md` for the full convention and copy-paste templates.
 
 ## Output Contract
 
@@ -96,6 +121,12 @@ Default command output should remain `json` for automation and agent usage.
 
 Paid commands include additional metadata keys:
 - `estimated_cost`, `currency`, `requires_approval`, `cached`, `source`, `fetched_at`, `dry_run`
+
+Command-specific payload shapes:
+- **Multi-model AEO** (`aeo responses --all` / `--models`): `data.results[]` — one row per engine/model with `{ engine, model, response, brand_mentions, error, cost }`; `metadata.estimated_cost` is the summed cost across all rows.
+- **Recommendations list / draft** (`recommendations list`, `recommendations draft`): `data.recommendations[]` where each item matches `state.Recommendation` (`id`, `target_url`, `target_query`, `change_type`, `current_value`, `recommended_value`, `rationale`, `evidence[]`, `priority`, `effort_minutes`, `forecasted_lift`, `merged_finding_id`, `created_at`).
+- **Forecast** (`recommendations forecast`): `data.forecasts[]` where each item is `{ recommendation_id, target_url, change_type, forecast: { estimated_monthly_clicks_delta, confidence_low, confidence_high, method } }`.
+- **PDF report** (`report pdf`): non-envelope side effect — writes a binary PDF to `--output`; stdout emits `{ success, data: { path, pages, bytes } }`.
 
 ## Configuration
 
@@ -119,25 +150,35 @@ Supported env overrides:
 - `SAGEO_GSC_CLIENT_ID`
 - `SAGEO_GSC_CLIENT_SECRET`
 - `SAGEO_PSI_API_KEY`
+- `SAGEO_LLM_PROVIDER` (default `anthropic`)
+- `SAGEO_ANTHROPIC_API_KEY`
+- `SAGEO_OPENAI_API_KEY`
 
 > Backlinks API uses the existing DataForSEO credentials (`SAGEO_DATAFORSEO_LOGIN` / `SAGEO_DATAFORSEO_PASSWORD`) — no new env vars needed.
 
 ## Validation Commands
 
-Run after changes:
+Run after changes (safe — no network, no cost):
 
 ```bash
 go test ./...
 go vet ./...
 ```
 
-For full quality gate:
+For full quality gate (still safe — unit tests only):
 
 ```bash
 make fmt
 make vet
 make test
 make lint
+```
+
+Opt-in live API coverage (costs money — requires credentials):
+
+```bash
+make test-integration   # SAGEO_LIVE_TESTS=1 go test -tags integration ./...
+make test-all           # unit + integration
 ```
 
 ## Local CLI Install/Update

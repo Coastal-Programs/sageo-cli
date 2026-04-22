@@ -23,9 +23,25 @@
 
 **Open-source SEO CLI tool** — crawl, audit, and optimize websites from the command line. Single Go binary. JSON output on every command.
 
-Sageo replaces the need to juggle multiple SEO tools. It crawls your site, runs a technical SEO audit, pulls Google Search Console data, checks PageSpeed (Core Web Vitals), analyzes SERP features (AI Overviews, Featured Snippets, People Also Ask), gets keyword difficulty and search intent, audits your backlink profile, and merges everything into prioritised action items — all from one CLI.
+Sageo replaces the need to juggle multiple SEO tools. It crawls your site, runs a technical SEO audit, pulls Google Search Console data, checks PageSpeed (Core Web Vitals), analyzes SERP features (AI Overviews, Featured Snippets, People Also Ask), gets keyword difficulty and search intent, audits your backlink profile, queries real AI engines (ChatGPT, Claude, Gemini, Perplexity) for brand visibility, generates concrete change recommendations with LLM-drafted copy, forecasts the click lift of each change, and can drive the whole pipeline end-to-end with a single `sageo run <url>` command — all from one CLI.
 
-Crawling, auditing, and PageSpeed Insights are free. Paid features (SERP, keyword research, backlinks, AEO/GEO) use DataForSEO with cost estimates and `--dry-run` on every command.
+Crawling, auditing, and PageSpeed Insights are free. Paid features (SERP, keyword research, backlinks, AEO/GEO, LLM drafting) are cost-estimated and budget-gated — every paid command supports `--dry-run`, and `sageo run` accepts a hard `--budget` ceiling.
+
+## What it does
+
+- **Crawl + audit** — BFS crawler, rule-based audit, 0–100 score
+- **Google Search Console** — pages, keywords, trends, devices, countries
+- **PageSpeed Insights** — Core Web Vitals (LCP, CLS, FCP, TBT, SI)
+- **SERP analysis** — 9 feature types including AI Overviews, Featured Snippets, PAA
+- **Labs** — keyword difficulty, volume, intent, ranked keywords, competitors
+- **Backlinks** — summary, referring domains, competitor gap
+- **Multi-model AEO** — fan out a prompt across ChatGPT, Claude, Gemini, and Perplexity in parallel, capture responses, detect brand mentions
+- **Brand mentions** — local scan of stored AEO responses (free) plus DataForSEO LLM Mentions API (search / top-pages / top-domains)
+- **Recommendation engine** — merge rules emit atomic `Recommendation` objects (title, meta, H1/H2, schema, body, speed, backlink, indexability) with evidence and priority
+- **LLM copy drafting** — Anthropic or OpenAI drivers fill `recommended_value` with real copy, validated against SERP length limits
+- **Click-lift forecaster** — attaches estimated monthly clicks delta per recommendation using the AWR 2024 position→CTR curve
+- **`sageo run` autonomous pipeline** — crawl → audit → GSC → PSI → Labs → SERP → backlinks → AEO fan-out → mentions → merge → recommend → draft → forecast, with `--budget`, `--skip`, `--only`, `--resume`, `--approve`
+- **PDF report** — styled, client-ready PDF (cover, exec summary, per-source findings, recommendation cards, forecast table, optional appendix)
 
 ## Install
 
@@ -60,6 +76,18 @@ sageo --help
 
 ## Quick Start
 
+The fastest path — one autonomous run plus a PDF:
+
+```bash
+sageo login
+sageo run https://yoursite.com --budget 5
+sageo report pdf
+```
+
+That single `run` drives crawl → audit → GSC → PSI → Labs → SERP → backlinks → AEO → merge → recommendations → LLM draft → forecast, capped at $5 of paid API spend.
+
+Or run each stage manually:
+
 ```bash
 # 1. Set up credentials
 sageo login
@@ -79,7 +107,15 @@ sageo gsc query keywords
 # 5. Run cross-source analysis
 sageo analyze
 
-# 6. Check your status
+# 6. Inspect and draft recommendations
+sageo recommendations list --top 20
+sageo recommendations draft --limit 20
+sageo recommendations forecast
+
+# 7. Render the client-ready PDF
+sageo report pdf --output ./report.pdf
+
+# 8. Check your status
 sageo status
 ```
 
@@ -164,15 +200,56 @@ sageo backlinks gap --target example.com
 ### AEO (Answer Engine Optimization)
 
 ```bash
-# Query an AI model directly
-sageo aeo responses --prompt "What is Sageo CLI?" --model chatgpt --dry-run
-sageo aeo responses --prompt "What is Sageo CLI?" --model claude
+# List the live AI model catalogue (cached 7 days)
+sageo aeo models
+
+# Single engine
+sageo aeo responses --prompt "What is Sageo CLI?" --engine chatgpt --dry-run
+sageo aeo responses --prompt "What is Sageo CLI?" --engine claude
+
+# Fan out to all engines in parallel
+sageo aeo responses --prompt "What is Sageo CLI?" --all --tier flagship
+sageo aeo responses --prompt "What is Sageo CLI?" --models gpt-5,claude-sonnet-4-6
 
 # AI search volume for a keyword
 sageo aeo keywords --keyword "seo tools" --location "United States"
+
+# Brand mention detection
+sageo aeo mentions scan                               # Layer A (local, free)
+sageo aeo mentions search --keyword "seo tools"      # Layer B (DataForSEO)
+sageo aeo mentions top-pages --keyword "seo tools"
+sageo aeo mentions top-domains --keyword "seo tools"
 ```
 
-Supported models: `chatgpt`, `claude`, `gemini`, `perplexity`
+Supported engines: `chatgpt`, `claude`, `gemini`, `perplexity`
+
+### Recommendations
+
+```bash
+sageo recommendations list --top 20
+sageo recommendations list --url https://yoursite.com/pricing --type title
+sageo recommendations draft --limit 20 --provider anthropic --dry-run
+sageo recommendations draft --limit 20                         # fills RecommendedValue via LLM
+sageo recommendations forecast                                 # attach click-lift estimates
+```
+
+### Autonomous run
+
+```bash
+sageo run https://yoursite.com --budget 5
+sageo run https://yoursite.com --skip backlinks,aeo
+sageo run https://yoursite.com --only crawl,audit,gsc,psi
+sageo run https://yoursite.com --resume             # pick up from last successful stage
+sageo run https://yoursite.com --dry-run            # estimate only, no paid calls
+```
+
+### PDF report
+
+```bash
+sageo report pdf
+sageo report pdf --output ./client-report.pdf --logo ./logo.png --brand-color '#1E40AF'
+sageo report pdf --appendix
+```
 
 ### GEO (Generative Engine Optimization)
 
@@ -225,6 +302,10 @@ sageo config path
 | `SAGEO_GSC_CLIENT_ID` | GSC OAuth client ID |
 | `SAGEO_GSC_CLIENT_SECRET` | GSC OAuth client secret |
 | `SAGEO_PSI_API_KEY` | Google PageSpeed Insights API key (optional, for higher rate limits) |
+| `SAGEO_LLM_PROVIDER` | LLM provider for `recommendations draft` — `anthropic` (default) or `openai` |
+| `SAGEO_ANTHROPIC_API_KEY` | Anthropic API key (used by `recommendations draft`) |
+| `SAGEO_OPENAI_API_KEY` | OpenAI API key (used by `recommendations draft`) |
+| `SAGEO_LIVE_TESTS` | Set to `1` to opt in to integration tests that hit paid APIs |
 
 ## Data Tiers
 
