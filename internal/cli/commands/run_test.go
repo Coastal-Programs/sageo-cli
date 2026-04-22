@@ -24,6 +24,8 @@ func TestRunCmdFlags(t *testing.T) {
 		{"dry-run", "false"},
 		{"approve", "false"},
 		{"resume", "false"},
+		{"no-snapshot", "false"},
+		{"retain", "20"},
 	}
 	for _, f := range flags {
 		got := cmd.Flag(f.name)

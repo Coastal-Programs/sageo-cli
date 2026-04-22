@@ -5,10 +5,14 @@
     Audit score: <strong>{{fmtFloat .Score 0}} / 100</strong>.
     Pages crawled: <strong>{{.PagesCrawled}}</strong>.
     Issues found: <strong>{{.IssueCount}}</strong>.
-    Recommendations: <strong>{{.RecCount}}</strong>.
-    Forecasted uplift: <strong>+{{formatInt .TotalLift}} clicks/mo</strong>
-    (range {{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}}).
+    Recommendations: <strong>{{.RecCount}}</strong>
+    (<strong>{{.TierHighCount}}</strong> high · <strong>{{.TierMediumCount}}</strong> medium · <strong>{{.TierLowCount}}</strong> low{{if .TierUnknownCount}} · <strong>{{.TierUnknownCount}}</strong> unknown{{end}}).
+    Estimated combined uplift: <strong>{{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}} clicks/mo</strong>
+    {{if .HasCalibration}}(calibrated against {{.CalibrationSamples}} past outcomes){{else}}<span class="muted">(uncalibrated — no historical outcomes yet)</span>{{end}}.
     {{if .HasAEOCoverage}}AEO brand coverage: <strong>{{pct .AEOCoverage}}</strong>.{{end}}
+  </p>
+  <p class="muted small">
+    Priority tier is the primary signal — it's what the tool stands behind. Specific click numbers are a supporting estimate subject to the calibration caveat noted on each recommendation.
   </p>
 
   <h2>Top 5 recommendations</h2>
@@ -16,10 +20,12 @@
     {{range .TopRecs}}
       <div class="rec-card">
         <div class="rec-head">
-          <span class="badge {{.PriorityClass}}" aria-label="Priority {{.R.Priority}}">P{{.R.Priority}}</span>
+          <span class="badge {{.TierClass}}" aria-label="Priority tier {{.TierLabel}}">{{.TierLabel}}</span>
           <span class="title">{{.R.ChangeType}} <span class="url">{{truncate .R.TargetURL 80}}</span></span>
+          {{if .ReviewBadge}}<span class="badge review-pending">{{.ReviewBadge}}</span>{{end}}
         </div>
-        {{if .R.Rationale}}<p class="small">{{truncate .R.Rationale 220}}</p>{{end}}
+        <p class="small">{{.TierHeadline}}</p>
+        {{if .R.Rationale}}<p class="small muted">{{truncate .R.Rationale 220}}</p>{{end}}
       </div>
     {{end}}
   {{else}}

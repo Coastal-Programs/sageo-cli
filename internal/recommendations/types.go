@@ -16,7 +16,25 @@ type (
 	Evidence       = state.Evidence
 	Recommendation = state.Recommendation
 	Forecast       = state.Forecast
+	PriorityTier   = state.PriorityTier
+	ReviewStatus   = state.ReviewStatus
 	State          = state.State
+)
+
+// PriorityTier constants re-exported from state.
+const (
+	PriorityHigh    = state.PriorityHigh
+	PriorityMedium  = state.PriorityMedium
+	PriorityLow     = state.PriorityLow
+	PriorityUnknown = state.PriorityUnknown
+)
+
+// ReviewStatus constants re-exported from state.
+const (
+	ReviewPending  = state.ReviewPending
+	ReviewApproved = state.ReviewApproved
+	ReviewRejected = state.ReviewRejected
+	ReviewEdited   = state.ReviewEdited
 )
 
 // ChangeType constants re-exported from state so callers don't need to

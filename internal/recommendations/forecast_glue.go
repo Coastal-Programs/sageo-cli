@@ -11,9 +11,10 @@ import (
 
 // AttachForecasts populates ForecastedLift on each recommendation in recs
 // by combining the target position heuristic from the forecast package
-// with search-volume and current-position signals pulled from st.
+// with search-volume and current-position signals pulled from st, then
+// applying the calibration profile (if any) from .sageo/calibration.json.
 //
-// Lookup order for signals:
+// Signal lookup order:
 //  1. GSC TopKeywords row matching TargetQuery (best — gives observed
 //     CTR, position, and impressions for that query).
 //  2. GSC TopPages row matching TargetURL (URL-normalised) — supplies
@@ -23,9 +24,25 @@ import (
 // When none of these provide a usable search volume, ForecastedLift is
 // left nil and a warning is logged; this is not an error condition.
 func AttachForecasts(st *state.State, recs []Recommendation) {
+	AttachForecastsWithBaseDir(st, recs, ".")
+}
+
+// AttachForecastsWithBaseDir is AttachForecasts with an explicit base
+// directory for loading the calibration profile. Exposed for tests.
+func AttachForecastsWithBaseDir(st *state.State, recs []Recommendation, baseDir string) {
 	if st == nil {
 		return
 	}
+
+	// Best-effort calibration profile. A missing or malformed file is
+	// logged but not fatal — forecasts still ship, just without
+	// historical calibration.
+	profile, err := forecast.LoadCalibrationProfile(baseDir)
+	if err != nil {
+		log.Printf("forecast: calibration profile unavailable: %v", err)
+		profile = nil
+	}
+
 	for i := range recs {
 		rec := &recs[i]
 
@@ -38,7 +55,6 @@ func AttachForecasts(st *state.State, recs []Recommendation) {
 
 		target := forecast.TargetPositionFor(*rec)
 		if currentPos > 0 && (rec.ChangeType == ChangeTitle || rec.ChangeType == ChangeMeta) {
-			// CTR-only uplift: keep target == current.
 			target = currentPos
 		}
 
@@ -48,8 +64,17 @@ func AttachForecasts(st *state.State, recs []Recommendation) {
 			MonthlySearchVolume: volume,
 			CurrentCTR:          currentCTR,
 		}
-		f := forecast.Estimate(in)
-		rec.ForecastedLift = &f
+		raw := forecast.Estimate(in)
+
+		// Pre-populate caveats that Adjust itself can't infer — the
+		// "low search volume" signal comes from the input side, not the
+		// calibration side.
+		if volume < 100 {
+			raw.Caveats = append(raw.Caveats, forecast.CaveatLowSearchVolume)
+		}
+
+		adjusted := forecast.Adjust(raw, profile, string(rec.ChangeType))
+		rec.ForecastedLift = &adjusted
 	}
 }
 

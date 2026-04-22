@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jakeschepis/sageo-cli/internal/report/html"
 	"github.com/jakeschepis/sageo-cli/internal/state"
 )
 
@@ -56,6 +57,14 @@ type Config struct {
 	Verbose bool
 	// Out is where verbose progress lines go. Defaults to os.Stderr.
 	Out io.Writer
+	// NoSnapshot disables per-run snapshot creation.
+	NoSnapshot bool
+	// SnapshotKeepLastN is the retention count for auto-prune after snapshot.
+	// 0 = don't prune by count.
+	SnapshotKeepLastN int
+	// SnapshotKeepWithin is the retention age for auto-prune after snapshot.
+	// 0 = don't prune by age.
+	SnapshotKeepWithin time.Duration
 }
 
 // Result captures what the pipeline did.
@@ -84,9 +93,10 @@ func Run(ctx context.Context, cfg Config, stages []Stage) (*Result, error) {
 		cfg.WorkDir = "."
 	}
 
+	startedAt := time.Now().UTC()
 	res := &Result{
 		StageCosts: map[string]float64{},
-		StartedAt:  time.Now().UTC(),
+		StartedAt:  startedAt,
 		Outcome:    "success",
 	}
 
@@ -194,6 +204,7 @@ func Run(ctx context.Context, cfg Config, stages []Stage) (*Result, error) {
 			res.Error = runErr.Error()
 			res.Outcome = "failed"
 			res.CompletedAt = time.Now().UTC()
+			writeSnapshot(cfg, res, runErr)
 			return res, fmt.Errorf("stage %s failed: %w (resume with --resume)", stg.Name, runErr)
 		}
 
@@ -208,6 +219,8 @@ func Run(ctx context.Context, cfg Config, stages []Stage) (*Result, error) {
 	}
 
 	res.CompletedAt = time.Now().UTC()
+
+	writeSnapshot(cfg, res, nil)
 
 	// Record to PipelineRuns audit log.
 	if st, err := state.Load(cfg.WorkDir); err == nil {
@@ -234,3 +247,73 @@ func Run(ctx context.Context, cfg Config, stages []Stage) (*Result, error) {
 
 	return res, nil
 }
+
+// writeSnapshot is the end-of-run hook that freezes state.json,
+// recommendations.json, report.html, and metadata.json into a new
+// timestamped directory. Snapshot failures are logged but do not fail the
+// pipeline — a successful run whose snapshot fails is still a successful
+// run as far as the user's data is concerned.
+func writeSnapshot(cfg Config, res *Result, runErr error) {
+	if cfg.NoSnapshot {
+		return
+	}
+	st, err := state.Load(cfg.WorkDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(cfg.Out, "[snapshot] skipped: cannot load state: %v\n", err)
+		return
+	}
+
+	meta := state.SnapshotMeta{
+		StartedAt:    res.StartedAt,
+		CompletedAt:  res.CompletedAt,
+		StagesRun:    append([]string(nil), res.StagesRun...),
+		TotalCostUSD: res.TotalCostUSD,
+		Outcome:      res.Outcome,
+		FailedStage:  res.FailedStage,
+	}
+	if runErr != nil && meta.Error == "" {
+		meta.Error = runErr.Error()
+	}
+
+	// Render the HTML report. Best-effort — a render failure should not
+	// block snapshot creation.
+	var reportHTML []byte
+	var buf bytesBuffer
+	if err := html.Render(st, &buf, html.Options{}); err == nil {
+		reportHTML = buf.Bytes()
+	} else {
+		_, _ = fmt.Fprintf(cfg.Out, "[snapshot] report render failed: %v\n", err)
+	}
+
+	snap, err := state.CreateSnapshot(cfg.WorkDir, st, meta, reportHTML)
+	if err != nil {
+		_, _ = fmt.Fprintf(cfg.Out, "[snapshot] create failed: %v\n", err)
+		return
+	}
+	if cfg.Verbose {
+		_, _ = fmt.Fprintf(cfg.Out, "[snapshot] wrote %s\n", snap.Dir)
+	}
+
+	// Auto-prune after successful creation.
+	if cfg.SnapshotKeepLastN > 0 || cfg.SnapshotKeepWithin > 0 {
+		removed, err := state.PruneSnapshots(cfg.WorkDir, cfg.SnapshotKeepLastN, cfg.SnapshotKeepWithin)
+		if err != nil {
+			_, _ = fmt.Fprintf(cfg.Out, "[snapshot] prune failed: %v\n", err)
+		} else if len(removed) > 0 && cfg.Verbose {
+			_, _ = fmt.Fprintf(cfg.Out, "[snapshot] pruned %d old snapshot(s)\n", len(removed))
+		}
+	}
+}
+
+// bytesBuffer is a tiny shim around bytes.Buffer so we avoid another import
+// at the top of this file purely for snapshot rendering.
+type bytesBuffer struct {
+	b []byte
+}
+
+func (w *bytesBuffer) Write(p []byte) (int, error) {
+	w.b = append(w.b, p...)
+	return len(p), nil
+}
+
+func (w *bytesBuffer) Bytes() []byte { return w.b }

@@ -114,6 +114,29 @@ const (
 	ChangeEntityConsistency ChangeType = "entity_consistency"
 )
 
+// ReviewStatus enumerates the human-review states that apply to any
+// Recommendation whose RecommendedValue was produced (or could be produced)
+// by an LLM.
+//
+// The review gate exists because LLM output is not trustworthy by default:
+// drafts must be explicitly inspected before they can appear in a
+// client-facing PDF/HTML report. See internal/recommendations and the
+// `sageo recommendations review` command for the approval flow.
+type ReviewStatus string
+
+const (
+	// ReviewPending is the default for any freshly drafted value.
+	ReviewPending ReviewStatus = "pending_review"
+	// ReviewApproved means a human accepted the draft unchanged.
+	ReviewApproved ReviewStatus = "approved"
+	// ReviewRejected means a human rejected the draft; rejected
+	// recommendations are excluded from reports entirely.
+	ReviewRejected ReviewStatus = "rejected"
+	// ReviewEdited means a human modified the draft before approving it.
+	// OriginalDraft preserves the LLM's original output for audit.
+	ReviewEdited ReviewStatus = "edited"
+)
+
 // Evidence captures a single data point supporting a Recommendation.
 type Evidence struct {
 	Source      string      `json:"source"` // "gsc" | "psi" | "serp" | "labs" | "backlinks" | "aeo" | "crawl" | "audit"
@@ -122,12 +145,88 @@ type Evidence struct {
 	Description string      `json:"description,omitempty"`
 }
 
+// PriorityTier is the primary, human-facing forecast signal. It's a
+// three-bucket classification — high, medium, low — plus an explicit
+// "unknown" when the tool can't confidently place the recommendation.
+// The tier is what we actually stand behind; the specific click numbers
+// are supporting detail subject to the calibration caveat.
+type PriorityTier string
+
+const (
+	PriorityHigh    PriorityTier = "high"
+	PriorityMedium  PriorityTier = "medium"
+	PriorityLow     PriorityTier = "low"
+	PriorityUnknown PriorityTier = "unknown"
+)
+
 // Forecast is the estimated traffic impact of a Recommendation.
+//
+// BREAKING (v0.x): the pre-calibration fields
+// EstimatedMonthlyClicksDelta / ConfidenceLow / ConfidenceHigh were
+// renamed to RawEstimate / RawConfidenceLow / RawConfidenceHigh to make
+// the "uncalibrated vs calibrated" distinction explicit. Consumers
+// should prefer Point / Low / High helpers which return calibrated
+// values when available, and render PriorityTier as the primary
+// headline.
 type Forecast struct {
-	EstimatedMonthlyClicksDelta int    `json:"estimated_monthly_clicks_delta"`
-	ConfidenceLow               int    `json:"confidence_low"`
-	ConfidenceHigh              int    `json:"confidence_high"`
-	Method                      string `json:"method,omitempty"`
+	// Raw (uncalibrated) click-delta model output.
+	RawEstimate       int `json:"raw_estimate"`
+	RawConfidenceLow  int `json:"raw_confidence_low"`
+	RawConfidenceHigh int `json:"raw_confidence_high"`
+
+	// Calibrated output — populated only when a calibration profile
+	// with enough historical data is available. Pointers so that
+	// "not yet calibrated" is distinguishable from "calibrated to zero".
+	CalibratedEstimate       *int `json:"calibrated_estimate,omitempty"`
+	CalibratedConfidenceLow  *int `json:"calibrated_confidence_low,omitempty"`
+	CalibratedConfidenceHigh *int `json:"calibrated_confidence_high,omitempty"`
+
+	// Human-facing fields.
+	PriorityTier       PriorityTier `json:"priority_tier,omitempty"`
+	ConfidenceLabel    string       `json:"confidence_label,omitempty"`
+	Caveats            []string     `json:"caveats,omitempty"`
+	Method             string       `json:"method,omitempty"`
+	CalibrationSamples int          `json:"calibration_samples,omitempty"`
+}
+
+// Point returns the best available point estimate — the calibrated
+// value when present, else the raw model output.
+func (f *Forecast) Point() int {
+	if f == nil {
+		return 0
+	}
+	if f.CalibratedEstimate != nil {
+		return *f.CalibratedEstimate
+	}
+	return f.RawEstimate
+}
+
+// Low returns the best available lower confidence bound.
+func (f *Forecast) Low() int {
+	if f == nil {
+		return 0
+	}
+	if f.CalibratedConfidenceLow != nil {
+		return *f.CalibratedConfidenceLow
+	}
+	return f.RawConfidenceLow
+}
+
+// High returns the best available upper confidence bound.
+func (f *Forecast) High() int {
+	if f == nil {
+		return 0
+	}
+	if f.CalibratedConfidenceHigh != nil {
+		return *f.CalibratedConfidenceHigh
+	}
+	return f.RawConfidenceHigh
+}
+
+// IsCalibrated reports whether the forecast has been adjusted against
+// historical (predicted, observed) data.
+func (f *Forecast) IsCalibrated() bool {
+	return f != nil && f.CalibratedEstimate != nil
 }
 
 // Recommendation is the atomic unit of "what to change on the site".
@@ -149,4 +248,29 @@ type Recommendation struct {
 	ForecastedLift   *Forecast  `json:"forecasted_lift,omitempty"`
 	MergedFindingID  string     `json:"merged_finding_id,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
+
+	// Review gate fields. Zero values are safe on old state files:
+	// EffectiveReviewStatus treats a non-empty RecommendedValue with an
+	// empty ReviewStatus as ReviewPending.
+	ReviewStatus  ReviewStatus `json:"review_status,omitempty"`
+	ReviewedAt    *time.Time   `json:"reviewed_at,omitempty"`
+	ReviewedBy    string       `json:"reviewed_by,omitempty"`
+	ReviewNotes   string       `json:"review_notes,omitempty"`
+	OriginalDraft string       `json:"original_draft,omitempty"`
+}
+
+// EffectiveReviewStatus returns the review status that should be applied to
+// r, handling backwards-compat for old state files.
+//
+//   - No drafted value → "" (no review needed).
+//   - Drafted value with no explicit status → ReviewPending.
+//   - Otherwise the stored status.
+func (r Recommendation) EffectiveReviewStatus() ReviewStatus {
+	if r.RecommendedValue == "" {
+		return ""
+	}
+	if r.ReviewStatus == "" {
+		return ReviewPending
+	}
+	return r.ReviewStatus
 }

@@ -137,25 +137,31 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // -----------------------------------------------------------------------------
 
 type viewModel struct {
-	Title           string
-	BrandColor      string
-	LogoDataURI     template.URL
-	Styles          template.CSS
-	GeneratedAt     string
-	Site            string
-	Score           float64
-	PagesCrawled    int
-	IssueCount      int
-	RecCount        int
-	TotalLift       int
-	ForecastLow     int
-	ForecastHigh    int
-	AEOCoverage     float64
-	HasAEOCoverage  bool
-	TopRecs         []recView
-	AllRecs         []recView
-	ForecastRows    []forecastRow
-	IncludeAppendix bool
+	Title              string
+	BrandColor         string
+	LogoDataURI        template.URL
+	Styles             template.CSS
+	GeneratedAt        string
+	Site               string
+	Score              float64
+	PagesCrawled       int
+	IssueCount         int
+	RecCount           int
+	TotalLift          int
+	ForecastLow        int
+	ForecastHigh       int
+	TierHighCount      int
+	TierMediumCount    int
+	TierLowCount       int
+	TierUnknownCount   int
+	HasCalibration     bool
+	CalibrationSamples int
+	AEOCoverage        float64
+	HasAEOCoverage     bool
+	TopRecs            []recView
+	AllRecs            []recView
+	ForecastRows       []forecastRow
+	IncludeAppendix    bool
 
 	AuditFindings []state.Finding
 	AuditTotal    int
@@ -182,10 +188,18 @@ type viewModel struct {
 type recView struct {
 	R                state.Recommendation
 	PriorityClass    string
+	TierLabel        string // HIGH | MEDIUM | LOW | UNKNOWN
+	TierClass        string // css class, e.g. tier-high
+	TierHeadline     string // full plain-English headline line
 	LiftRange        string
 	EffortLabel      string
 	CurrentValue     string
 	RecommendedValue string
+	CaveatLines      []string
+	// ReviewBadge is a short string shown next to the title when the
+	// draft is still awaiting human sign-off. Empty for approved/edited
+	// recommendations so the report stays clean once reviewed.
+	ReviewBadge string
 }
 
 type forecastRow struct {
@@ -194,10 +208,13 @@ type forecastRow struct {
 	Query      string
 	ChangeType string
 	Priority   int
+	TierLabel  string
+	TierClass  string
 	LiftEst    int
 	LiftLow    int
 	LiftHigh   int
 	LiftRange  string
+	Caveats    string
 	Effort     string
 }
 
@@ -208,8 +225,13 @@ type aeoRow struct {
 }
 
 func buildViewModel(st *state.State, opts Options, styles template.CSS) viewModel {
-	recs := sortedRecs(st.Recommendations)
-	totalLift, lo, hi := forecastTotals(st)
+	// Filter out rejected recommendations entirely — they must never appear
+	// in a client-facing report. Approved, edited, and pending-review recs
+	// all render; pending-review recs get a visible badge so the reader
+	// knows the draft has not been signed off on yet.
+	reportable := filterReportable(st.Recommendations)
+	recs := sortedRecs(reportable)
+	totalLift, lo, hi := forecastTotalsOf(reportable)
 	topRaw := recs
 	if len(topRaw) > 5 {
 		topRaw = topRaw[:5]
@@ -301,77 +323,192 @@ func buildViewModel(st *state.State, opts Options, styles template.CSS) viewMode
 	hasCoverage := coverage >= 0
 
 	// Forecast rows
-	fRecs := sortedByForecast(st.Recommendations)
+	fRecs := sortedByForecast(reportable)
 	if len(fRecs) > 20 {
 		fRecs = fRecs[:20]
 	}
 	var fRows []forecastRow
 	for i, r := range fRecs {
+		tier := tierOf(r)
 		fRows = append(fRows, forecastRow{
 			Index:      i + 1,
 			URL:        r.TargetURL,
 			Query:      r.TargetQuery,
 			ChangeType: string(r.ChangeType),
 			Priority:   r.Priority,
+			TierLabel:  tierLabel(tier),
+			TierClass:  tierClass(tier),
 			LiftEst:    liftEst(r),
 			LiftLow:    liftLow(r),
 			LiftHigh:   liftHigh(r),
-			LiftRange:  liftRange(r),
+			LiftRange:  liftRangeHuman(r),
+			Caveats:    strings.Join(humanCaveats(r), "; "),
 			Effort:     effortLabel(r),
 		})
 	}
 
+	highN, medN, lowN, unkN := tierCounts(reportable)
+	hasCalibration, calSamples := calibrationSummary(reportable)
+
 	return viewModel{
-		Title:           opts.Title,
-		BrandColor:      opts.BrandColorHex,
-		LogoDataURI:     template.URL(opts.LogoDataURI),
-		Styles:          styles,
-		GeneratedAt:     time.Now().UTC().Format("2 Jan 2006"),
-		Site:            safeSite(st.Site),
-		Score:           st.Score,
-		PagesCrawled:    st.PagesCrawled,
-		IssueCount:      len(st.Findings),
-		RecCount:        len(st.Recommendations),
-		TotalLift:       totalLift,
-		ForecastLow:     lo,
-		ForecastHigh:    hi,
-		AEOCoverage:     coverage,
-		HasAEOCoverage:  hasCoverage,
-		TopRecs:         toRecViews(topRaw),
-		AllRecs:         toRecViews(recs),
-		ForecastRows:    fRows,
-		IncludeAppendix: opts.IncludeAppendix,
-		AuditFindings:   auditFindings,
-		AuditTotal:      len(st.Findings),
-		PSIFailing:      psiFailing,
-		PSIAll:          psiShow,
-		PSITotal:        psiTotal,
-		GSCUnder:        gscUnder,
-		GSCTotal:        gscTotal,
-		SERPQueries:     serpList,
-		SERPAI:          serpAI,
-		SERPNotP1:       serpNotP1,
-		SERPTotal:       serpTotal,
-		Backlinks:       st.Backlinks,
-		AEOData:         aeoRows,
-		AEOPrompts:      aeoPrompts,
-		AEOResponses:    aeoResponses,
+		Title:              opts.Title,
+		BrandColor:         opts.BrandColorHex,
+		LogoDataURI:        template.URL(opts.LogoDataURI),
+		Styles:             styles,
+		GeneratedAt:        time.Now().UTC().Format("2 Jan 2006"),
+		Site:               safeSite(st.Site),
+		Score:              st.Score,
+		PagesCrawled:       st.PagesCrawled,
+		IssueCount:         len(st.Findings),
+		RecCount:           recShippedCount(reportable),
+		TotalLift:          totalLift,
+		ForecastLow:        lo,
+		ForecastHigh:       hi,
+		TierHighCount:      highN,
+		TierMediumCount:    medN,
+		TierLowCount:       lowN,
+		TierUnknownCount:   unkN,
+		HasCalibration:     hasCalibration,
+		CalibrationSamples: calSamples,
+		AEOCoverage:        coverage,
+		HasAEOCoverage:     hasCoverage,
+		TopRecs:            toRecViews(topRaw),
+		AllRecs:            toRecViews(recs),
+		ForecastRows:       fRows,
+		IncludeAppendix:    opts.IncludeAppendix,
+		AuditFindings:      auditFindings,
+		AuditTotal:         len(st.Findings),
+		PSIFailing:         psiFailing,
+		PSIAll:             psiShow,
+		PSITotal:           psiTotal,
+		GSCUnder:           gscUnder,
+		GSCTotal:           gscTotal,
+		SERPQueries:        serpList,
+		SERPAI:             serpAI,
+		SERPNotP1:          serpNotP1,
+		SERPTotal:          serpTotal,
+		Backlinks:          st.Backlinks,
+		AEOData:            aeoRows,
+		AEOPrompts:         aeoPrompts,
+		AEOResponses:       aeoResponses,
 	}
 }
 
 func toRecViews(rs []state.Recommendation) []recView {
 	out := make([]recView, 0, len(rs))
 	for _, r := range rs {
+		tier := tierOf(r)
 		out = append(out, recView{
 			R:                r,
 			PriorityClass:    priorityClass(r.Priority),
-			LiftRange:        liftRange(r),
+			TierLabel:        tierLabel(tier),
+			TierClass:        tierClass(tier),
+			TierHeadline:     tierHeadline(r),
+			LiftRange:        liftRangeHuman(r),
 			EffortLabel:      effortLabel(r),
 			CurrentValue:     emptyDash(r.CurrentValue),
 			RecommendedValue: emptyDash(r.RecommendedValue),
+			CaveatLines:      humanCaveats(r),
+			ReviewBadge:      reviewBadge(r),
 		})
 	}
 	return out
+}
+
+// filterReportable drops rejected recommendations. Pending, approved, and
+// edited drafts all ship; pending drafts are badged in the template.
+func filterReportable(in []state.Recommendation) []state.Recommendation {
+	out := make([]state.Recommendation, 0, len(in))
+	for _, r := range in {
+		if r.EffectiveReviewStatus() == state.ReviewRejected {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// recShippedCount returns the number of recommendations that count towards
+// the executive-summary headline — approved + edited only. Pending drafts
+// are visible in the report but don't inflate the "X recommendations" count.
+func recShippedCount(in []state.Recommendation) int {
+	n := 0
+	for _, r := range in {
+		switch r.EffectiveReviewStatus() {
+		case state.ReviewApproved, state.ReviewEdited, "":
+			n++
+		}
+	}
+	return n
+}
+
+// forecastTotalsOf is forecastTotals but operates on a supplied slice so we
+// can exclude rejected recs and (for the headline) pending ones.
+func forecastTotalsOf(in []state.Recommendation) (total, low, high int) {
+	for _, r := range in {
+		// Pending drafts are shown in the report but shouldn't inflate the
+		// forecasted-uplift headline until a human signs off.
+		if r.EffectiveReviewStatus() == state.ReviewPending {
+			continue
+		}
+		if r.ForecastedLift != nil {
+			total += r.ForecastedLift.Point()
+			low += r.ForecastedLift.Low()
+			high += r.ForecastedLift.High()
+		}
+	}
+	return
+}
+
+// tierCounts returns (high, medium, low, unknown) counts across the
+// supplied recommendations. Pending drafts are excluded so the exec
+// summary stays aligned with forecastTotalsOf.
+func tierCounts(in []state.Recommendation) (hi, med, lo, unk int) {
+	for _, r := range in {
+		if r.EffectiveReviewStatus() == state.ReviewPending {
+			continue
+		}
+		switch tierOf(r) {
+		case state.PriorityHigh:
+			hi++
+		case state.PriorityMedium:
+			med++
+		case state.PriorityLow:
+			lo++
+		default:
+			unk++
+		}
+	}
+	return
+}
+
+// calibrationSummary reports whether any recommendation in the report
+// was calibrated against historical data, and if so how many historical
+// samples backed the most-calibrated entry.
+func calibrationSummary(in []state.Recommendation) (bool, int) {
+	has := false
+	maxSamples := 0
+	for _, r := range in {
+		if r.ForecastedLift == nil {
+			continue
+		}
+		if r.ForecastedLift.IsCalibrated() {
+			has = true
+		}
+		if r.ForecastedLift.CalibrationSamples > maxSamples {
+			maxSamples = r.ForecastedLift.CalibrationSamples
+		}
+	}
+	return has, maxSamples
+}
+
+// reviewBadge returns a short badge string for pending-review drafts and
+// the empty string otherwise.
+func reviewBadge(r state.Recommendation) string {
+	if r.EffectiveReviewStatus() == state.ReviewPending {
+		return "🔍 Pending review"
+	}
+	return ""
 }
 
 // -----------------------------------------------------------------------------
@@ -394,46 +531,106 @@ func sortedByForecast(in []state.Recommendation) []state.Recommendation {
 	return out
 }
 
-func forecastTotals(st *state.State) (total, low, high int) {
-	for _, r := range st.Recommendations {
-		if r.ForecastedLift != nil {
-			total += r.ForecastedLift.EstimatedMonthlyClicksDelta
-			low += r.ForecastedLift.ConfidenceLow
-			high += r.ForecastedLift.ConfidenceHigh
-		}
-	}
-	return
-}
+func liftEst(r state.Recommendation) int  { return r.ForecastedLift.Point() }
+func liftLow(r state.Recommendation) int  { return r.ForecastedLift.Low() }
+func liftHigh(r state.Recommendation) int { return r.ForecastedLift.High() }
 
-func liftEst(r state.Recommendation) int {
-	if r.ForecastedLift == nil {
-		return 0
-	}
-	return r.ForecastedLift.EstimatedMonthlyClicksDelta
-}
-
-func liftLow(r state.Recommendation) int {
-	if r.ForecastedLift == nil {
-		return 0
-	}
-	return r.ForecastedLift.ConfidenceLow
-}
-
-func liftHigh(r state.Recommendation) int {
-	if r.ForecastedLift == nil {
-		return 0
-	}
-	return r.ForecastedLift.ConfidenceHigh
-}
-
-func liftRange(r state.Recommendation) string {
+// liftRangeHuman renders the estimated range without implying a
+// specific point number when calibration data is insufficient.
+func liftRangeHuman(r state.Recommendation) string {
 	if r.ForecastedLift == nil {
 		return "—"
 	}
-	return fmt.Sprintf("+%s clicks/mo (range %s–%s)",
-		formatInt(r.ForecastedLift.EstimatedMonthlyClicksDelta),
-		formatInt(r.ForecastedLift.ConfidenceLow),
-		formatInt(r.ForecastedLift.ConfidenceHigh))
+	f := r.ForecastedLift
+	if f.ConfidenceLabel == "insufficient_data" {
+		return fmt.Sprintf("~%s–%s clicks/mo (unverified)",
+			formatInt(f.Low()), formatInt(f.High()))
+	}
+	return fmt.Sprintf("%s–%s clicks/mo",
+		formatInt(f.Low()), formatInt(f.High()))
+}
+
+// tierOf returns the tier stored on the ForecastedLift, or
+// PriorityUnknown when no forecast is attached.
+func tierOf(r state.Recommendation) state.PriorityTier {
+	if r.ForecastedLift == nil || r.ForecastedLift.PriorityTier == "" {
+		return state.PriorityUnknown
+	}
+	return r.ForecastedLift.PriorityTier
+}
+
+func tierLabel(t state.PriorityTier) string {
+	switch t {
+	case state.PriorityHigh:
+		return "HIGH"
+	case state.PriorityMedium:
+		return "MEDIUM"
+	case state.PriorityLow:
+		return "LOW"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func tierClass(t state.PriorityTier) string {
+	switch t {
+	case state.PriorityHigh:
+		return "tier-high"
+	case state.PriorityMedium:
+		return "tier-medium"
+	case state.PriorityLow:
+		return "tier-low"
+	default:
+		return "tier-unknown"
+	}
+}
+
+// tierHeadline renders the one-line plain-English summary that leads
+// every recommendation card: tier first, range second, caveat hint
+// third.
+func tierHeadline(r state.Recommendation) string {
+	tier := tierLabel(tierOf(r))
+	if r.ForecastedLift == nil {
+		return fmt.Sprintf("Priority: %s — no traffic forecast available.", tier)
+	}
+	f := r.ForecastedLift
+	switch f.ConfidenceLabel {
+	case "insufficient_data":
+		return fmt.Sprintf("Priority: %s — likely meaningful traffic impact. Specific click numbers are not reliable yet (need ≥%d past %s outcomes to calibrate).",
+			tier, 20, r.ChangeType)
+	case "low_confidence":
+		return fmt.Sprintf("Priority: %s — estimated %s–%s more clicks/month, but similar-type history is thin so take the specific numbers with a grain of salt.",
+			tier, formatInt(f.Low()), formatInt(f.High()))
+	default:
+		return fmt.Sprintf("Priority: %s — estimated %s–%s more clicks/month if implemented (calibrated against %d past outcomes).",
+			tier, formatInt(f.Low()), formatInt(f.High()), f.CalibrationSamples)
+	}
+}
+
+// humanCaveats renders a Forecast's caveat list into plain-English
+// phrases ready to show in the UI.
+func humanCaveats(r state.Recommendation) []string {
+	if r.ForecastedLift == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range r.ForecastedLift.Caveats {
+		switch c {
+		case "insufficient_calibration_data":
+			out = append(out, "Historical calibration data is thin — the click range here is the raw model output, not verified against past outcomes.")
+		case "low_confidence":
+			out = append(out, "Similar-type history is thin; specific numbers may be off.")
+		case "low_search_volume":
+			out = append(out, "Low search volume for this query makes predictions noisy.")
+		case "forecaster_tends_to_overshoot":
+			out = append(out, "For this change type, past forecasts have overshot reality — the range has been adjusted down.")
+		case "forecaster_tends_to_undershoot":
+			out = append(out, "For this change type, past forecasts have undershot reality — the range has been adjusted up.")
+		default:
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func effortLabel(r state.Recommendation) string {

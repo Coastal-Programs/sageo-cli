@@ -73,12 +73,12 @@ func populatedState() *state.State {
 				CurrentValue: "Old title", RecommendedValue: "New, better title",
 				Rationale: "Improves CTR", Priority: 90, EffortMinutes: 15,
 				Evidence:       []state.Evidence{{Source: "gsc", Metric: "ctr", Value: 0.01}},
-				ForecastedLift: &state.Forecast{EstimatedMonthlyClicksDelta: 120, ConfidenceLow: 60, ConfidenceHigh: 200},
+				ForecastedLift: &state.Forecast{RawEstimate: 120, RawConfidenceLow: 60, RawConfidenceHigh: 200, PriorityTier: state.PriorityMedium},
 			},
 			{
 				ID: "rec-2", TargetURL: "https://example.com/b", ChangeType: state.ChangeMeta,
 				Priority: 65, EffortMinutes: 5,
-				ForecastedLift: &state.Forecast{EstimatedMonthlyClicksDelta: 40, ConfidenceLow: 20, ConfidenceHigh: 70},
+				ForecastedLift: &state.Forecast{RawEstimate: 40, RawConfidenceLow: 20, RawConfidenceHigh: 70, PriorityTier: state.PriorityLow},
 			},
 			{
 				ID: "rec-3", TargetURL: "https://example.com/c", ChangeType: state.ChangeSchema,
@@ -207,8 +207,8 @@ func TestRender_PriorityBadgeAccessibility(t *testing.T) {
 	body := buf.String()
 	// Every priority badge must include an aria-label so colour is never
 	// the sole signal for priority.
-	if !strings.Contains(body, `aria-label="Priority 90"`) {
-		t.Error("expected aria-label on priority badge")
+	if !strings.Contains(body, `aria-label="Priority tier MEDIUM"`) {
+		t.Error("expected aria-label on priority tier badge")
 	}
 }
 

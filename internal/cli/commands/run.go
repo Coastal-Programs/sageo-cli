@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	xterm "golang.org/x/term"
 
 	"github.com/jakeschepis/sageo-cli/internal/audit"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
@@ -45,6 +49,7 @@ const (
 	stageRecommend   = "recommendations"
 	stageDraft       = "draft"
 	stageForecast    = "forecast"
+	stageReviewGate  = "review_gate"
 )
 
 // NewRunCmd returns the top-level `sageo run <url>` command that orchestrates
@@ -52,14 +57,19 @@ const (
 // pipeline in a single invocation.
 func NewRunCmd(format *string, verbose *bool) *cobra.Command {
 	var (
-		budgetUSD   float64
-		skipFlag    []string
-		onlyFlag    []string
-		maxPages    int
-		promptsFile string
-		dryRun      bool
-		approve     bool
-		resume      bool
+		budgetUSD      float64
+		skipFlag       []string
+		onlyFlag       []string
+		maxPages       int
+		promptsFile    string
+		dryRun         bool
+		approve        bool
+		resume         bool
+		noReview       bool
+		autoApproveAll bool
+		noSnapshot     bool
+		retainN        int
+		retainWithin   time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -86,42 +96,65 @@ func NewRunCmd(format *string, verbose *bool) *cobra.Command {
 			}
 
 			cfgRun := pipeline.Config{
-				WorkDir:   ".",
-				BudgetUSD: budgetUSD,
-				Skip:      toSet(skipFlag),
-				Only:      toSet(onlyFlag),
-				Approve:   approve,
-				Resume:    resume,
-				DryRun:    dryRun,
-				Verbose:   *verbose,
-				Out:       cmd.ErrOrStderr(),
+				WorkDir:            ".",
+				BudgetUSD:          budgetUSD,
+				Skip:               toSet(skipFlag),
+				Only:               toSet(onlyFlag),
+				Approve:            approve,
+				Resume:             resume,
+				DryRun:             dryRun,
+				Verbose:            *verbose,
+				Out:                cmd.ErrOrStderr(),
+				NoSnapshot:         noSnapshot,
+				SnapshotKeepLastN:  retainN,
+				SnapshotKeepWithin: retainWithin,
 			}
 
 			stages := buildRunStages(targetURL, maxPages, prompts)
+			stages = append(stages, stageReviewGateImpl(noReview, autoApproveAll, cmd.InOrStdin(), cmd.ErrOrStderr()))
 
 			res, runErr := pipeline.Run(cmd.Context(), cfgRun, stages)
 
 			// Compute summary fields even if we errored partway.
 			recCount := 0
-			var totalLift int
+			var totalLow, totalHigh int
+			tierHigh, tierMedium, tierLow, tierUnknown := 0, 0, 0, 0
 			if st, err := state.Load("."); err == nil {
 				recCount = len(st.Recommendations)
 				for _, r := range st.Recommendations {
 					if r.ForecastedLift != nil {
-						totalLift += r.ForecastedLift.EstimatedMonthlyClicksDelta
+						totalLow += r.ForecastedLift.Low()
+						totalHigh += r.ForecastedLift.High()
+						switch r.ForecastedLift.PriorityTier {
+						case state.PriorityHigh:
+							tierHigh++
+						case state.PriorityMedium:
+							tierMedium++
+						case state.PriorityLow:
+							tierLow++
+						default:
+							tierUnknown++
+						}
+					} else {
+						tierUnknown++
 					}
 				}
 			}
 
 			meta := map[string]any{
-				"source":                         "pipeline",
-				"stages_run":                     res.StagesRun,
-				"skipped":                        res.Skipped,
-				"total_cost_usd":                 res.TotalCostUSD,
-				"recommendations_count":          recCount,
-				"forecasted_monthly_click_delta": totalLift,
-				"outcome":                        res.Outcome,
-				"fetched_at":                     time.Now().UTC().Format(time.RFC3339),
+				"source":                "pipeline",
+				"stages_run":            res.StagesRun,
+				"skipped":               res.Skipped,
+				"total_cost_usd":        res.TotalCostUSD,
+				"recommendations_count": recCount,
+				"estimated_range_low":   totalLow,
+				"estimated_range_high":  totalHigh,
+				"tier_high":             tierHigh,
+				"tier_medium":           tierMedium,
+				"tier_low":              tierLow,
+				"tier_unknown":          tierUnknown,
+				"outcome":               res.Outcome,
+				"fetched_at":            time.Now().UTC().Format(time.RFC3339),
 			}
 			if res.FailedStage != "" {
 				meta["failed_stage"] = res.FailedStage
@@ -145,6 +178,11 @@ func NewRunCmd(format *string, verbose *bool) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Estimate only — do not call paid APIs")
 	cmd.Flags().BoolVar(&approve, "approve", false, "Pre-approve all cost gates (no mid-run prompts)")
 	cmd.Flags().BoolVar(&resume, "resume", false, "Resume from the last successful stage recorded in state")
+	cmd.Flags().BoolVar(&noReview, "no-review", false, "Skip the interactive review gate — drafts remain pending_review until `sageo recommendations review` is run")
+	cmd.Flags().BoolVar(&autoApproveAll, "auto-approve-all", false, "UNSAFE: mass-approve every LLM draft. Do not use for client-facing reports.")
+	cmd.Flags().BoolVar(&noSnapshot, "no-snapshot", false, "Skip writing a per-run snapshot under .sageo/snapshots/")
+	cmd.Flags().IntVar(&retainN, "retain", 20, "Keep the last N snapshots after this run; older ones are pruned")
+	cmd.Flags().DurationVar(&retainWithin, "retain-within", 90*24*time.Hour, "Also keep snapshots within this duration (e.g. 90d via 2160h)")
 
 	return cmd
 }
@@ -853,6 +891,108 @@ func stageForecastImpl() pipeline.Stage {
 			return nil
 		},
 	}
+}
+
+// stageReviewGateImpl is the terminal stage that enforces the LLM review
+// gate. It runs after draft/forecast have produced pending drafts.
+//
+//   - --auto-approve-all: bulk-approves every pending draft. Documented as
+//     unsafe for client-facing reports.
+//   - --no-review: leaves everything pending; the user must run
+//     `sageo recommendations review` separately.
+//   - default: in an interactive terminal, prompts "review now?" and defers
+//     to the interactive review flow. Non-interactive (piped) runs fall
+//     back to the --no-review path with a warning.
+func stageReviewGateImpl(noReview, autoApproveAll bool, stdin io.Reader, stderr io.Writer) pipeline.Stage {
+	return pipeline.Stage{
+		Name: stageReviewGate,
+		Run: func(ctx context.Context, s *state.State) error {
+			pending := countPendingReview(s)
+			if pending == 0 {
+				s.AddHistory("pipeline.review_gate", "no pending drafts")
+				return nil
+			}
+			if autoApproveAll {
+				approveAllPending(s, "run --auto-approve-all")
+				s.AddHistory("pipeline.review_gate", fmt.Sprintf("auto-approved=%d (unsafe flag)", pending))
+				_, _ = fmt.Fprintf(stderr, "[review] auto-approved %d draft(s) via --auto-approve-all (unsafe for client reports)\n", pending)
+				return nil
+			}
+			if noReview {
+				s.AddHistory("pipeline.review_gate", fmt.Sprintf("deferred=%d (--no-review)", pending))
+				_, _ = fmt.Fprintf(stderr, "[review] %d draft(s) left pending_review — run `sageo recommendations review` before shipping reports\n", pending)
+				return nil
+			}
+			// Interactive default. If stdin is not a terminal, defer.
+			if !isTerminal(stdin) {
+				s.AddHistory("pipeline.review_gate", fmt.Sprintf("deferred=%d (non-interactive)", pending))
+				_, _ = fmt.Fprintf(stderr, "[review] %d draft(s) pending; non-interactive session — run `sageo recommendations review` later\n", pending)
+				return nil
+			}
+			_, _ = fmt.Fprintf(stderr, "[review] %d draft(s) pending review. Review now? [Y/n] ", pending)
+			var ans string
+			br := bufio.NewReader(stdin)
+			line, _ := br.ReadString('\n')
+			ans = strings.ToLower(strings.TrimSpace(line))
+			if ans == "n" || ans == "no" {
+				s.AddHistory("pipeline.review_gate", fmt.Sprintf("deferred=%d (user skipped)", pending))
+				return nil
+			}
+			queue := buildReviewQueue(s, reviewFilter{})
+			prompter := &huhReviewPrompter{}
+			processed, err := runReviewLoop(s, queue, prompter, "cli", ".")
+			if err != nil && !errors.Is(err, errReviewQuit) {
+				return err
+			}
+			s.AddHistory("pipeline.review_gate", fmt.Sprintf("reviewed=%d of %d", processed, pending))
+			return nil
+		},
+	}
+}
+
+// countPendingReview is a small helper to total pending-review recs.
+func countPendingReview(s *state.State) int {
+	if s == nil {
+		return 0
+	}
+	n := 0
+	for _, r := range s.Recommendations {
+		if r.EffectiveReviewStatus() == state.ReviewPending {
+			n++
+		}
+	}
+	return n
+}
+
+// approveAllPending marks every pending-review rec as approved.
+func approveAllPending(s *state.State, note string) {
+	if s == nil {
+		return
+	}
+	now := time.Now().UTC()
+	for i := range s.Recommendations {
+		r := &s.Recommendations[i]
+		if r.EffectiveReviewStatus() != state.ReviewPending {
+			continue
+		}
+		r.ReviewStatus = state.ReviewApproved
+		t := now
+		r.ReviewedAt = &t
+		r.ReviewedBy = "cli"
+		if note != "" {
+			r.ReviewNotes = note
+		}
+	}
+}
+
+// isTerminal reports whether r is an interactive terminal. We deliberately
+// avoid importing a new dep — golang.org/x/term is already in the module.
+func isTerminal(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	return xterm.IsTerminal(int(f.Fd()))
 }
 
 // max avoids importing "math" for a trivial helper.

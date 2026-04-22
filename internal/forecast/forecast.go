@@ -142,10 +142,10 @@ func Estimate(in Input) state.Forecast {
 	high := int(math.Round(delta * 1.30))
 
 	return state.Forecast{
-		EstimatedMonthlyClicksDelta: point,
-		ConfidenceLow:               low,
-		ConfidenceHigh:              high,
-		Method:                      "awr_2024_curve",
+		RawEstimate:       point,
+		RawConfidenceLow:  low,
+		RawConfidenceHigh: high,
+		Method:            "awr_2024_curve",
 	}
 }
 

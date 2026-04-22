@@ -27,14 +27,18 @@ func TestAttachForecasts_GSCHappyPath(t *testing.T) {
 	if recs[0].ForecastedLift == nil {
 		t.Fatal("expected ForecastedLift to be populated")
 	}
-	if recs[0].ForecastedLift.EstimatedMonthlyClicksDelta <= 0 {
-		t.Errorf("expected positive click delta, got %d", recs[0].ForecastedLift.EstimatedMonthlyClicksDelta)
+	f := recs[0].ForecastedLift
+	if f.RawEstimate <= 0 {
+		t.Errorf("expected positive raw click delta, got %d", f.RawEstimate)
 	}
-	if recs[0].ForecastedLift.ConfidenceLow > recs[0].ForecastedLift.EstimatedMonthlyClicksDelta {
-		t.Errorf("confidence low should be ≤ point estimate")
+	if f.Low() > f.Point() {
+		t.Errorf("low bound should be ≤ point estimate")
 	}
-	if recs[0].ForecastedLift.ConfidenceHigh < recs[0].ForecastedLift.EstimatedMonthlyClicksDelta {
-		t.Errorf("confidence high should be ≥ point estimate")
+	if f.High() < f.Point() {
+		t.Errorf("high bound should be ≥ point estimate")
+	}
+	if f.PriorityTier == "" {
+		t.Errorf("expected PriorityTier populated, got empty")
 	}
 }
 
@@ -58,8 +62,8 @@ func TestAttachForecasts_FallbackToLabs(t *testing.T) {
 	if recs[0].ForecastedLift == nil {
 		t.Fatal("expected ForecastedLift from Labs fallback")
 	}
-	if recs[0].ForecastedLift.EstimatedMonthlyClicksDelta <= 0 {
-		t.Errorf("expected positive click delta, got %d", recs[0].ForecastedLift.EstimatedMonthlyClicksDelta)
+	if recs[0].ForecastedLift.RawEstimate <= 0 {
+		t.Errorf("expected positive raw click delta, got %d", recs[0].ForecastedLift.RawEstimate)
 	}
 }
 

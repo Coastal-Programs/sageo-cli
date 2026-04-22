@@ -26,6 +26,7 @@ func NewRecommendationsCmd(format *string, verbose *bool) *cobra.Command {
 	cmd.AddCommand(newRecommendationsListCmd(format))
 	cmd.AddCommand(newRecommendationsDraftCmd(format))
 	cmd.AddCommand(newRecommendationsForecastCmd(format))
+	cmd.AddCommand(newRecommendationsReviewCmd(format))
 	return cmd
 }
 
@@ -60,46 +61,77 @@ func newRecommendationsForecastCmd(format *string) *cobra.Command {
 				return output.PrintCodedError("STATE_SAVE_FAILED", "failed to save state", err, nil, output.Format(*format))
 			}
 
-			total := 0
 			type liftRow struct {
-				ID         string `json:"id"`
-				TargetURL  string `json:"target_url"`
-				ChangeType string `json:"change_type"`
-				Lift       int    `json:"estimated_monthly_clicks_delta"`
-				Low        int    `json:"confidence_low"`
-				High       int    `json:"confidence_high"`
+				ID           string   `json:"id"`
+				TargetURL    string   `json:"target_url"`
+				ChangeType   string   `json:"change_type"`
+				PriorityTier string   `json:"priority_tier"`
+				Point        int      `json:"point_estimate"`
+				Low          int      `json:"range_low"`
+				High         int      `json:"range_high"`
+				RawPoint     int      `json:"raw_estimate"`
+				Calibrated   bool     `json:"calibrated"`
+				Confidence   string   `json:"confidence_label"`
+				Caveats      []string `json:"caveats,omitempty"`
+				Samples      int      `json:"calibration_samples"`
 			}
 			rows := make([]liftRow, 0, len(recs))
+			var totalLow, totalHigh, totalPoint int
+			tiers := map[string]int{}
 			for _, r := range recs {
 				if r.ForecastedLift == nil {
 					continue
 				}
-				total += r.ForecastedLift.EstimatedMonthlyClicksDelta
+				f := r.ForecastedLift
+				totalPoint += f.Point()
+				totalLow += f.Low()
+				totalHigh += f.High()
+				tier := string(f.PriorityTier)
+				if tier == "" {
+					tier = string(state.PriorityUnknown)
+				}
+				tiers[tier]++
 				rows = append(rows, liftRow{
-					ID:         r.ID,
-					TargetURL:  r.TargetURL,
-					ChangeType: string(r.ChangeType),
-					Lift:       r.ForecastedLift.EstimatedMonthlyClicksDelta,
-					Low:        r.ForecastedLift.ConfidenceLow,
-					High:       r.ForecastedLift.ConfidenceHigh,
+					ID:           r.ID,
+					TargetURL:    r.TargetURL,
+					ChangeType:   string(r.ChangeType),
+					PriorityTier: tier,
+					Point:        f.Point(),
+					Low:          f.Low(),
+					High:         f.High(),
+					RawPoint:     f.RawEstimate,
+					Calibrated:   f.IsCalibrated(),
+					Confidence:   f.ConfidenceLabel,
+					Caveats:      f.Caveats,
+					Samples:      f.CalibrationSamples,
 				})
 			}
-			sort.SliceStable(rows, func(i, j int) bool { return rows[i].Lift > rows[j].Lift })
+			sort.SliceStable(rows, func(i, j int) bool {
+				if rows[i].PriorityTier != rows[j].PriorityTier {
+					return tierRank(rows[i].PriorityTier) < tierRank(rows[j].PriorityTier)
+				}
+				return rows[i].Point > rows[j].Point
+			})
 			top := rows
 			if len(top) > 10 {
 				top = top[:10]
 			}
 
 			meta := map[string]any{
-				"forecasted":         len(rows),
-				"skipped":            len(recs) - len(rows),
-				"total_monthly_lift": total,
-				"fetched_at":         time.Now().UTC().Format(time.RFC3339),
-				"source":             "forecast",
+				"forecasted":           len(rows),
+				"skipped":              len(recs) - len(rows),
+				"tier_counts":          tiers,
+				"estimated_range_low":  totalLow,
+				"estimated_range_high": totalHigh,
+				"fetched_at":           time.Now().UTC().Format(time.RFC3339),
+				"source":               "forecast",
 			}
 			return output.PrintSuccess(map[string]any{
-				"total_monthly_lift": total,
-				"top":                top,
+				"tier_counts":          tiers,
+				"estimated_range_low":  totalLow,
+				"estimated_range_high": totalHigh,
+				"estimated_point":      totalPoint,
+				"top":                  top,
 			}, meta, output.Format(*format))
 		},
 	}
@@ -297,6 +329,20 @@ func summariseTargets(recs []recommendations.Recommendation) []map[string]string
 	return out
 }
 
+// tierRank orders priority tiers for display: high < medium < low < unknown.
+func tierRank(t string) int {
+	switch t {
+	case string(state.PriorityHigh):
+		return 0
+	case string(state.PriorityMedium):
+		return 1
+	case string(state.PriorityLow):
+		return 2
+	default:
+		return 3
+	}
+}
+
 func newRecommendationsListCmd(format *string) *cobra.Command {
 	var (
 		urlFilter  string
@@ -352,7 +398,22 @@ func newRecommendationsListCmd(format *string) *cobra.Command {
 					return nil
 				}
 				for _, r := range filtered {
-					fmt.Printf("[%d] %s %s\n", r.Priority, r.ChangeType, r.TargetURL)
+					tier := "UNKNOWN"
+					var rangeLine string
+					if r.ForecastedLift != nil {
+						if r.ForecastedLift.PriorityTier != "" {
+							tier = strings.ToUpper(string(r.ForecastedLift.PriorityTier))
+						}
+						if r.ForecastedLift.ConfidenceLabel == "insufficient_data" {
+							rangeLine = fmt.Sprintf("~%d–%d clicks/mo (unverified)", r.ForecastedLift.Low(), r.ForecastedLift.High())
+						} else {
+							rangeLine = fmt.Sprintf("%d–%d clicks/mo", r.ForecastedLift.Low(), r.ForecastedLift.High())
+						}
+					}
+					fmt.Printf("Priority: %s  %s  %s\n", tier, r.ChangeType, r.TargetURL)
+					if rangeLine != "" {
+						fmt.Printf("    est:   %s\n", rangeLine)
+					}
 					if r.TargetQuery != "" {
 						fmt.Printf("    query: %s\n", r.TargetQuery)
 					}
@@ -361,6 +422,9 @@ func newRecommendationsListCmd(format *string) *cobra.Command {
 					}
 					if r.RecommendedValue != "" {
 						fmt.Printf("    fix:   %s\n", r.RecommendedValue)
+					}
+					if r.ForecastedLift != nil && len(r.ForecastedLift.Caveats) > 0 {
+						fmt.Printf("    note:  %s\n", strings.Join(r.ForecastedLift.Caveats, "; "))
 					}
 					fmt.Printf("    effort: %d min\n", r.EffortMinutes)
 					fmt.Println(strings.Repeat("-", 60))

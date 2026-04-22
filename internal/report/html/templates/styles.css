@@ -133,6 +133,31 @@ tbody tr:hover { background: var(--bg-soft); }
 .priority-high { background: var(--priority-high); }
 .priority-med  { background: var(--priority-med); }
 .priority-low  { background: var(--priority-low); }
+.tier-high    { background: var(--priority-high); }
+.tier-medium  { background: var(--priority-med); }
+.tier-low     { background: var(--priority-low); }
+.tier-unknown { background: #94A3B8; }
+.tier-headline {
+  margin: 6px 0 10px 0;
+  font-size: 14px;
+  color: var(--fg);
+}
+details.caveats summary {
+  color: var(--fg-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+details.caveats ul {
+  margin: 6px 0 0 16px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.review-pending {
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FCD34D;
+  margin-left: 6px;
+}
 
 .rec-card {
   border: 1px solid var(--border);

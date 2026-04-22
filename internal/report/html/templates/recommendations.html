@@ -6,9 +6,12 @@
     {{range .AllRecs}}
       <article class="rec-card">
         <div class="rec-head">
-          <span class="badge {{.PriorityClass}}" aria-label="Priority {{.R.Priority}}">P{{.R.Priority}}</span>
+          <span class="badge {{.TierClass}}" aria-label="Priority tier {{.TierLabel}}">{{.TierLabel}}</span>
           <span class="title">{{.R.ChangeType}} on <span class="url">{{.R.TargetURL}}</span></span>
+          {{if .ReviewBadge}}<span class="badge review-pending" aria-label="Pending review">{{.ReviewBadge}}</span>{{end}}
         </div>
+
+        <p class="tier-headline">{{.TierHeadline}}</p>
 
         {{if or .R.CurrentValue .R.RecommendedValue}}
         <div class="side-by-side">
@@ -30,6 +33,15 @@
         </div>
         {{end}}
 
+        {{if .CaveatLines}}
+        <details class="caveats">
+          <summary>Forecast caveats ({{len .CaveatLines}})</summary>
+          <ul>
+            {{range .CaveatLines}}<li>{{.}}</li>{{end}}
+          </ul>
+        </details>
+        {{end}}
+
         {{if .R.Evidence}}
         <details>
           <summary>Evidence ({{len .R.Evidence}})</summary>
@@ -42,7 +54,7 @@
         {{end}}
 
         <div class="rec-footer">
-          <span class="lift">Forecast: {{.LiftRange}}</span>
+          <span class="lift">Estimated range: {{.LiftRange}}</span>
           <span>Effort: {{.EffortLabel}}</span>
           {{if .R.TargetQuery}}<span>Query: <span class="mono">{{.R.TargetQuery}}</span></span>{{end}}
         </div>

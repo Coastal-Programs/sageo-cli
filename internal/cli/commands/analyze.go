@@ -122,7 +122,8 @@ func NewAnalyzeCmd(format *string, verbose *bool) *cobra.Command {
 			}
 
 			metadata := map[string]any{
-				"generated_at": time.Now().UTC().Format(time.RFC3339),
+				"generated_at":         time.Now().UTC().Format(time.RFC3339),
+				"review_status_counts": ReviewStatusCounts(st),
 			}
 			return output.PrintSuccess(data, metadata, output.Format(*format))
 		},

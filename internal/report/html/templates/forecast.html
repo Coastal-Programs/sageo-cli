@@ -2,8 +2,21 @@
 <section class="page-break">
   <h1>Forecast Summary</h1>
   <p class="section-summary">
-    Top recommendations ranked by forecasted monthly click delta. Grand total across all {{.RecCount}} recommendations:
-    <strong>+{{formatInt .TotalLift}} clicks/mo</strong> (range {{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}}).
+    Recommendations bucketed by priority tier — the primary signal we stand behind.
+    Specific click numbers are a supporting estimate, not a promise.
+  </p>
+  <p class="section-summary">
+    <strong>{{.TierHighCount}}</strong> high-priority ·
+    <strong>{{.TierMediumCount}}</strong> medium ·
+    <strong>{{.TierLowCount}}</strong> low ·
+    <strong>{{.TierUnknownCount}}</strong> unknown.
+    Combined estimated range across all {{.RecCount}} recommendations:
+    <strong>{{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}} clicks/mo</strong>.
+    {{if .HasCalibration}}
+      Calibrated against {{.CalibrationSamples}} past outcome{{if ne .CalibrationSamples 1}}s{{end}}.
+    {{else}}
+      <span class="muted">(no historical calibration data yet — ranges reflect model uncertainty only)</span>
+    {{end}}
   </p>
   {{if .ForecastRows}}
   <table class="sortable">
@@ -13,9 +26,9 @@
         <th data-type="str">URL</th>
         <th data-type="str">Query</th>
         <th data-type="str">Change</th>
-        <th data-type="num">Priority</th>
-        <th data-type="num">Est. lift</th>
-        <th data-type="str">Range</th>
+        <th data-type="str">Priority</th>
+        <th data-type="str">Estimated range</th>
+        <th data-type="str">Caveats</th>
         <th data-type="str">Effort</th>
       </tr>
     </thead>
@@ -26,15 +39,15 @@
         <td data-v="{{.URL}}" class="mono">{{truncate .URL 60}}</td>
         <td data-v="{{.Query}}">{{if .Query}}{{truncate .Query 40}}{{else}}—{{end}}</td>
         <td data-v="{{.ChangeType}}">{{.ChangeType}}</td>
-        <td data-v="{{.Priority}}">{{.Priority}}</td>
-        <td data-v="{{.LiftEst}}">+{{formatInt .LiftEst}}</td>
-        <td data-v="{{.LiftLow}}">{{formatInt .LiftLow}}–{{formatInt .LiftHigh}}</td>
+        <td data-v="{{.TierLabel}}"><span class="badge {{.TierClass}}">{{.TierLabel}}</span></td>
+        <td data-v="{{.LiftEst}}">{{.LiftRange}}</td>
+        <td data-v="{{.Caveats}}" class="small muted">{{if .Caveats}}{{.Caveats}}{{else}}—{{end}}</td>
         <td data-v="{{.Effort}}">{{.Effort}}</td>
       </tr>
     {{end}}
     </tbody>
   </table>
-  <div class="sort-hint">Tip: click any column header to sort.</div>
+  <div class="sort-hint">Tip: click any column header to sort. Priority tier is the primary signal; specific click numbers are supporting context.</div>
   {{else}}
     <div class="empty">No forecast data available.</div>
   {{end}}

@@ -76,6 +76,14 @@ func Draft(ctx context.Context, p llm.Provider, rec *Recommendation, page PageCo
 			continue
 		}
 		rec.RecommendedValue = text
+		// Every LLM-drafted value lands in the review queue. Callers must
+		// explicitly approve / edit before the value is treated as
+		// ready-to-ship. See internal/state.ReviewStatus.
+		rec.ReviewStatus = ReviewPending
+		rec.OriginalDraft = text
+		rec.ReviewedAt = nil
+		rec.ReviewedBy = ""
+		rec.ReviewNotes = ""
 		return nil
 	}
 	return fmt.Errorf("draft: output failed validation after %d attempts: %w", draftAttempts, lastErr)
