@@ -1,0 +1,29 @@
+{{define "summary.html"}}
+<section class="page-break">
+  <h1>Executive Summary</h1>
+  <p class="section-summary">
+    Audit score: <strong>{{fmtFloat .Score 0}} / 100</strong>.
+    Pages crawled: <strong>{{.PagesCrawled}}</strong>.
+    Issues found: <strong>{{.IssueCount}}</strong>.
+    Recommendations: <strong>{{.RecCount}}</strong>.
+    Forecasted uplift: <strong>+{{formatInt .TotalLift}} clicks/mo</strong>
+    (range {{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}}).
+    {{if .HasAEOCoverage}}AEO brand coverage: <strong>{{pct .AEOCoverage}}</strong>.{{end}}
+  </p>
+
+  <h2>Top 5 recommendations</h2>
+  {{if .TopRecs}}
+    {{range .TopRecs}}
+      <div class="rec-card">
+        <div class="rec-head">
+          <span class="badge {{.PriorityClass}}" aria-label="Priority {{.R.Priority}}">P{{.R.Priority}}</span>
+          <span class="title">{{.R.ChangeType}} <span class="url">{{truncate .R.TargetURL 80}}</span></span>
+        </div>
+        {{if .R.Rationale}}<p class="small">{{truncate .R.Rationale 220}}</p>{{end}}
+      </div>
+    {{end}}
+  {{else}}
+    <div class="empty">No recommendations generated yet. Run <code>sageo run</code> first.</div>
+  {{end}}
+</section>
+{{end}}

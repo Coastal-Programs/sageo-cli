@@ -3,8 +3,11 @@ package commands
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/jakeschepis/sageo-cli/internal/audit"
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
@@ -12,7 +15,7 @@ import (
 	"github.com/jakeschepis/sageo-cli/internal/provider"
 	_ "github.com/jakeschepis/sageo-cli/internal/provider/local"
 	"github.com/jakeschepis/sageo-cli/internal/report"
-	pdfreport "github.com/jakeschepis/sageo-cli/internal/report/pdf"
+	htmlreport "github.com/jakeschepis/sageo-cli/internal/report/html"
 	"github.com/jakeschepis/sageo-cli/internal/state"
 	"github.com/jakeschepis/sageo-cli/pkg/output"
 	"github.com/spf13/cobra"
@@ -28,27 +31,37 @@ func NewReportCmd(format *string, verbose *bool) *cobra.Command {
 	cmd.AddCommand(
 		newReportGenerateCmd(format, verbose),
 		newReportListCmd(format, verbose),
-		newReportPDFCmd(format, verbose),
+		newReportHTMLCmd(format, verbose),
+		newReportPDFAliasCmd(format, verbose),
 	)
 	return cmd
 }
 
-func newReportPDFCmd(format *string, _ *bool) *cobra.Command {
+// newReportHTMLCmd is the primary report output — a single self-contained
+// HTML file. Users who want a PDF use browser print-to-PDF (Cmd/Ctrl+P).
+func newReportHTMLCmd(format *string, _ *bool) *cobra.Command {
 	var (
 		outPath    string
 		appendix   bool
 		logoPath   string
 		brandColor string
+		openFile   bool
+		title      string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "pdf",
-		Short: "Render a styled PDF summary of the audit, recommendations, and forecast",
+		Use:   "html",
+		Short: "Render a self-contained HTML report (use browser Cmd/Ctrl+P → Save as PDF for a PDF copy)",
+		Long: `Render a styled, self-contained HTML report summarising the audit, recommendations, and forecast.
+
+The output is a single .html file with inlined CSS and minimal JS — no external
+resources, works offline. To get a PDF, open the file in any modern browser and
+press Cmd+P (macOS) or Ctrl+P (Linux/Windows), then choose "Save as PDF".`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
 				return output.PrintCodedError(
 					"NO_PROJECT",
-					"No project initialized \u2014 run sageo init --url <site>",
+					"No project initialized — run sageo init --url <site>",
 					nil, nil,
 					output.Format(*format),
 				)
@@ -62,38 +75,88 @@ func newReportPDFCmd(format *string, _ *bool) *cobra.Command {
 			if err != nil {
 				return output.PrintCodedError(output.ErrReportWriteFailed, "invalid output path", err, nil, output.Format(*format))
 			}
-			if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to create output dir", err, nil, output.Format(*format))
+			}
+
+			logoURI, err := htmlreport.LoadLogoAsDataURI(logoPath)
+			if err != nil {
+				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to load logo", err, nil, output.Format(*format))
 			}
 
 			f, err := os.Create(abs)
 			if err != nil {
-				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to create PDF file", err, nil, output.Format(*format))
+				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to create HTML file", err, nil, output.Format(*format))
 			}
 			defer func() { _ = f.Close() }()
 
-			pages, size, err := pdfreport.RenderWithStats(s, f, pdfreport.Options{
+			size, err := htmlreport.RenderWithStats(s, f, htmlreport.Options{
 				IncludeAppendix: appendix,
-				LogoPath:        logoPath,
 				BrandColorHex:   brandColor,
+				LogoDataURI:     logoURI,
+				Title:           title,
 			})
 			if err != nil {
-				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to render PDF", err, nil, output.Format(*format))
+				return output.PrintCodedError(output.ErrReportWriteFailed, "failed to render HTML", err, nil, output.Format(*format))
+			}
+
+			fmt.Fprintf(os.Stderr, "✓ Report written. Open with: open %s  (or Cmd+P → Save as PDF for a printed copy)\n", abs)
+
+			if openFile {
+				_ = openInBrowser(abs)
 			}
 
 			return output.PrintSuccess(map[string]any{
 				"path":       abs,
-				"pages":      pages,
 				"size_bytes": size,
 			}, nil, output.Format(*format))
 		},
 	}
 
-	cmd.Flags().StringVar(&outPath, "output", "./sageo-report.pdf", "Path to write the PDF to")
+	cmd.Flags().StringVar(&outPath, "output", "./sageo-report.html", "Path to write the HTML file to")
 	cmd.Flags().BoolVar(&appendix, "appendix", false, "Include raw data appendix tables")
-	cmd.Flags().StringVar(&logoPath, "logo", "", "Optional path to a PNG/JPG logo for the cover")
+	cmd.Flags().StringVar(&logoPath, "logo", "", "Optional path to a PNG/JPG logo for the cover (embedded as base64)")
 	cmd.Flags().StringVar(&brandColor, "brand-color", "", "Brand colour hex (default #1E40AF)")
+	cmd.Flags().BoolVar(&openFile, "open", false, "Open the report in the default browser after generation")
+	cmd.Flags().StringVar(&title, "title", "", "Report title (default \"Sageo Audit Report\")")
 	return cmd
+}
+
+// newReportPDFAliasCmd preserves `sageo report pdf` as a deprecated alias that
+// routes to the HTML renderer so existing scripts keep working with a warning.
+func newReportPDFAliasCmd(format *string, verbose *bool) *cobra.Command {
+	htmlCmd := newReportHTMLCmd(format, verbose)
+	orig := htmlCmd.RunE
+	cmd := &cobra.Command{
+		Use:        "pdf",
+		Short:      "Deprecated: alias for `sageo report html`. Use Cmd+P → Save as PDF in your browser.",
+		Deprecated: "use `sageo report html` instead; open the .html file in a browser and press Cmd/Ctrl+P to save as PDF.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Fprintln(os.Stderr, "warning: `sageo report pdf` is deprecated. Rendering HTML instead. Use Cmd/Ctrl+P in your browser to save as PDF.")
+			return orig(cmd, args)
+		},
+	}
+	// Copy flags so existing invocations keep working.
+	cmd.Flags().AddFlagSet(htmlCmd.Flags())
+	// Change default output to sageo-report.html for consistency.
+	if f := cmd.Flags().Lookup("output"); f != nil {
+		f.DefValue = "./sageo-report.html"
+		_ = f.Value.Set("./sageo-report.html")
+	}
+	return cmd
+}
+
+func openInBrowser(path string) error {
+	var c *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		c = exec.Command("open", path)
+	case "windows":
+		c = exec.Command("cmd", "/c", "start", "", path)
+	default:
+		c = exec.Command("xdg-open", path)
+	}
+	return c.Start()
 }
 
 func newReportGenerateCmd(format *string, verbose *bool) *cobra.Command {

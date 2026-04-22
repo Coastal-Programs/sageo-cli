@@ -1,0 +1,44 @@
+{{define "appendix.html"}}
+<section class="page-break">
+  <h1>Appendix A — Top GSC queries</h1>
+  {{if .GSCTotal}}
+    <table>
+      <thead><tr><th>Query</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Position</th></tr></thead>
+      <tbody>
+      {{range .GSCUnder}}
+        <tr>
+          <td>{{truncate .Key 80}}</td>
+          <td>{{fmtFloat .Impressions 0}}</td>
+          <td>{{fmtFloat .Clicks 0}}</td>
+          <td>{{pctCTR .CTR}}</td>
+          <td>{{fmtFloat .Position 1}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">No GSC data captured.</div>
+  {{end}}
+</section>
+
+<section class="page-break">
+  <h1>Appendix B — Full audit findings</h1>
+  {{if .AuditTotal}}
+    <table>
+      <thead><tr><th>Rule</th><th>URL</th><th>Verdict</th><th>Why</th></tr></thead>
+      <tbody>
+      {{range .AuditFindings}}
+        <tr>
+          <td class="mono">{{.Rule}}</td>
+          <td class="mono">{{truncate .URL 60}}</td>
+          <td>{{.Verdict}}</td>
+          <td>{{.Why}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">No findings recorded.</div>
+  {{end}}
+</section>
+{{end}}

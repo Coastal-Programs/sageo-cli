@@ -1,0 +1,55 @@
+{{define "recommendations.html"}}
+<section class="page-break">
+  <h1>Recommendations</h1>
+  {{if .AllRecs}}
+    <p class="muted small">{{.RecCount}} recommendations, sorted by priority.</p>
+    {{range .AllRecs}}
+      <article class="rec-card">
+        <div class="rec-head">
+          <span class="badge {{.PriorityClass}}" aria-label="Priority {{.R.Priority}}">P{{.R.Priority}}</span>
+          <span class="title">{{.R.ChangeType}} on <span class="url">{{.R.TargetURL}}</span></span>
+        </div>
+
+        {{if or .R.CurrentValue .R.RecommendedValue}}
+        <div class="side-by-side">
+          <div class="col">
+            <h4>Current</h4>
+            <div>{{.CurrentValue}}</div>
+          </div>
+          <div class="col">
+            <h4>Recommended</h4>
+            <div>{{.RecommendedValue}}</div>
+          </div>
+        </div>
+        {{end}}
+
+        {{if .R.Rationale}}
+        <div class="kv">
+          <h4>Rationale</h4>
+          <div>{{.R.Rationale}}</div>
+        </div>
+        {{end}}
+
+        {{if .R.Evidence}}
+        <details>
+          <summary>Evidence ({{len .R.Evidence}})</summary>
+          <ul>
+            {{range .R.Evidence}}
+              <li><strong>[{{.Source}}]</strong> {{evidenceLine .}}</li>
+            {{end}}
+          </ul>
+        </details>
+        {{end}}
+
+        <div class="rec-footer">
+          <span class="lift">Forecast: {{.LiftRange}}</span>
+          <span>Effort: {{.EffortLabel}}</span>
+          {{if .R.TargetQuery}}<span>Query: <span class="mono">{{.R.TargetQuery}}</span></span>{{end}}
+        </div>
+      </article>
+    {{end}}
+  {{else}}
+    <div class="empty">No recommendations generated yet.</div>
+  {{end}}
+</section>
+{{end}}

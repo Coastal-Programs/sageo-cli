@@ -1,12 +1,14 @@
-package pdf
+package html
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/state"
+	netxhtml "golang.org/x/net/html"
 )
 
 func minimalState() *state.State {
@@ -88,18 +90,15 @@ func populatedState() *state.State {
 
 func TestRender_MinimalState(t *testing.T) {
 	var buf bytes.Buffer
-	pages, size, err := RenderWithStats(minimalState(), &buf, Options{})
+	size, err := RenderWithStats(minimalState(), &buf, Options{})
 	if err != nil {
 		t.Fatalf("render failed: %v", err)
 	}
 	if size == 0 {
 		t.Fatal("expected non-zero size")
 	}
-	if !bytes.HasPrefix(buf.Bytes(), []byte("%PDF-")) {
-		t.Fatalf("expected PDF magic header, got %q", buf.Bytes()[:8])
-	}
-	if pages < 1 {
-		t.Fatalf("expected at least 1 page, got %d", pages)
+	if !bytes.HasPrefix(buf.Bytes(), []byte("<!DOCTYPE html>")) {
+		t.Fatalf("expected <!DOCTYPE html> prefix, got %q", buf.Bytes()[:20])
 	}
 }
 
@@ -113,69 +112,120 @@ func TestRender_InvalidInputs(t *testing.T) {
 	}
 }
 
-func TestRender_PopulatedState_AppendixChangesPageCount(t *testing.T) {
+func TestRender_AppendixTogglesContent(t *testing.T) {
 	var without bytes.Buffer
-	pagesWithout, _, err := RenderWithStats(populatedState(), &without, Options{})
-	if err != nil {
+	if err := Render(populatedState(), &without, Options{}); err != nil {
 		t.Fatalf("render without appendix: %v", err)
 	}
-
 	var with bytes.Buffer
-	pagesWith, _, err := RenderWithStats(populatedState(), &with, Options{IncludeAppendix: true})
-	if err != nil {
+	if err := Render(populatedState(), &with, Options{IncludeAppendix: true}); err != nil {
 		t.Fatalf("render with appendix: %v", err)
 	}
-
-	if pagesWith <= pagesWithout {
-		t.Fatalf("expected more pages with appendix (with=%d, without=%d)", pagesWith, pagesWithout)
+	if with.Len() <= without.Len() {
+		t.Fatalf("expected appendix render to be larger (with=%d, without=%d)", with.Len(), without.Len())
+	}
+	if strings.Contains(without.String(), "Appendix A") {
+		t.Error("appendix content should not appear when IncludeAppendix=false")
+	}
+	if !strings.Contains(with.String(), "Appendix A") {
+		t.Error("expected Appendix A heading when IncludeAppendix=true")
 	}
 }
 
-func TestRender_SectionHeadingsPresent(t *testing.T) {
+func TestRender_SectionHeadings(t *testing.T) {
 	var buf bytes.Buffer
-	opts := Options{IncludeAppendix: true}
-	opts.disableCompression = true
-	_, _, err := RenderWithStats(populatedState(), &buf, opts)
-	if err != nil {
+	if err := Render(populatedState(), &buf, Options{IncludeAppendix: true}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// gofpdf produces a text stream with page content as literal strings
-	// enclosed in parentheses. We search the raw bytes for substrings of each
-	// expected heading. Defensive against compression/encoding quirks.
 	body := buf.String()
 	mustContain := []string{
+		"SEO Performance Report",
 		"Executive Summary",
+		"What's broken",
 		"Recommendations",
 		"Forecast Summary",
 		"Appendix A",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {
-			t.Errorf("expected section heading %q in PDF stream", want)
+			t.Errorf("expected %q in rendered HTML", want)
 		}
 	}
 }
 
-func TestParseHex(t *testing.T) {
-	r, g, b := parseHex("#1E40AF", defaultBrandHex)
-	if r != 0x1E || g != 0x40 || b != 0xAF {
-		t.Fatalf("unexpected: %d %d %d", r, g, b)
+func TestRender_NoExternalURLs(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{IncludeAppendix: true}); err != nil {
+		t.Fatalf("render: %v", err)
 	}
-	// Invalid falls back.
-	r2, g2, b2 := parseHex("not-a-hex", "#1E40AF")
-	if r2 != 0x1E || g2 != 0x40 || b2 != 0xAF {
-		t.Fatalf("fallback failed: %d %d %d", r2, g2, b2)
+	body := buf.String()
+	// Check for external resource references (not just any URL — we expect
+	// the site URL to appear in the report body as content, so we specifically
+	// check for CSS/JS/image/font loads).
+	forbidden := []*regexp.Regexp{
+		regexp.MustCompile(`<link[^>]+href=["']https?://`),
+		regexp.MustCompile(`<link[^>]+href=["']//`),
+		regexp.MustCompile(`<script[^>]+src=["']https?://`),
+		regexp.MustCompile(`<script[^>]+src=["']//`),
+		regexp.MustCompile(`@import\s+(url\()?["']?https?://`),
+		regexp.MustCompile(`url\(["']?https?://[^)]+\)`),
+		regexp.MustCompile(`//cdn\.`),
+	}
+	for _, re := range forbidden {
+		if re.MatchString(body) {
+			t.Errorf("external resource reference found: %s", re)
+		}
 	}
 }
 
-func TestPriorityColor(t *testing.T) {
-	if r, _, _ := priorityColor(95); r != 185 {
-		t.Errorf("priority 95 should be red, got r=%d", r)
+func TestRender_LogoDataURIAllowed(t *testing.T) {
+	var buf bytes.Buffer
+	logo := "data:image/png;base64,iVBORw0KGgo="
+	if err := Render(populatedState(), &buf, Options{LogoDataURI: logo}); err != nil {
+		t.Fatalf("render: %v", err)
 	}
-	if r, _, _ := priorityColor(70); r != 202 {
-		t.Errorf("priority 70 should be amber")
+	if !strings.Contains(buf.String(), logo) {
+		t.Error("expected data-URI logo to appear in output")
 	}
-	if r, _, _ := priorityColor(40); r != 107 {
-		t.Errorf("priority 40 should be grey")
+}
+
+func TestRender_ParsesAsHTML(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{IncludeAppendix: true}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if _, err := netxhtml.Parse(&buf); err != nil {
+		t.Fatalf("output does not parse as HTML: %v", err)
+	}
+}
+
+func TestRender_PriorityBadgeAccessibility(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(populatedState(), &buf, Options{}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := buf.String()
+	// Every priority badge must include an aria-label so colour is never
+	// the sole signal for priority.
+	if !strings.Contains(body, `aria-label="Priority 90"`) {
+		t.Error("expected aria-label on priority badge")
+	}
+}
+
+func TestPriorityClass(t *testing.T) {
+	cases := map[int]string{95: "priority-high", 70: "priority-med", 40: "priority-low"}
+	for p, want := range cases {
+		if got := priorityClass(p); got != want {
+			t.Errorf("priorityClass(%d) = %s, want %s", p, got, want)
+		}
+	}
+}
+
+func TestFormatInt(t *testing.T) {
+	cases := map[int]string{0: "0", 123: "123", 1234: "1,234", 1234567: "1,234,567", -1000: "-1,000"}
+	for in, want := range cases {
+		if got := formatInt(in); got != want {
+			t.Errorf("formatInt(%d) = %s, want %s", in, got, want)
+		}
 	}
 }

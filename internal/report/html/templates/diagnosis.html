@@ -1,0 +1,123 @@
+{{define "diagnosis.html"}}
+<section class="page-break">
+  <h1>What's broken</h1>
+  <p class="muted small">Each section below is collapsed by default. Click to expand. All sections are expanded automatically when printing.</p>
+
+  <details>
+    <summary><strong>Crawl &amp; audit issues</strong> — {{.AuditTotal}} finding(s)</summary>
+    {{if .AuditFindings}}
+      <p class="section-summary small">{{.AuditTotal}} audit findings across {{.PagesCrawled}} crawled pages. The table below shows the top {{len .AuditFindings}} items blocking crawl, indexing, or basic on-page quality.</p>
+      <table>
+        <thead><tr><th>Rule</th><th>URL</th><th>Verdict</th></tr></thead>
+        <tbody>
+        {{range .AuditFindings}}
+          <tr>
+            <td class="mono">{{.Rule}}</td>
+            <td class="mono">{{truncate .URL 80}}</td>
+            <td>{{.Verdict}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    {{else}}<div class="empty">No audit findings recorded.</div>{{end}}
+  </details>
+
+  <details>
+    <summary><strong>PageSpeed (PSI)</strong> — {{.PSITotal}} page(s) measured, {{len .PSIFailing}} failing Core Web Vitals</summary>
+    {{if .PSIAll}}
+      <p class="section-summary small">Pages failing thresholds: perf &lt; 0.9, LCP &gt; 2.5s, or CLS &gt; 0.1.</p>
+      <table>
+        <thead><tr><th>URL</th><th>Perf</th><th>LCP (ms)</th><th>CLS</th><th>Device</th></tr></thead>
+        <tbody>
+        {{range .PSIAll}}
+          <tr>
+            <td class="mono">{{truncate .URL 70}}</td>
+            <td>{{pctPerf .PerformanceScore}}</td>
+            <td>{{fmtFloat .LCP 0}}</td>
+            <td>{{fmtFloat .CLS 2}}</td>
+            <td>{{.Strategy}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    {{else}}<div class="empty">No PageSpeed Insights data captured.</div>{{end}}
+  </details>
+
+  <details>
+    <summary><strong>GSC underperforming queries</strong> — {{.GSCTotal}} tracked, {{len .GSCUnder}} underperforming</summary>
+    {{if .GSCUnder}}
+      <p class="section-summary small">Queries with &gt;100 impressions but position &gt; 10 or CTR &lt; 2%.</p>
+      <table>
+        <thead><tr><th>Query</th><th>Impr</th><th>Clicks</th><th>CTR</th><th>Pos</th></tr></thead>
+        <tbody>
+        {{range .GSCUnder}}
+          <tr>
+            <td>{{truncate .Key 70}}</td>
+            <td>{{fmtFloat .Impressions 0}}</td>
+            <td>{{fmtFloat .Clicks 0}}</td>
+            <td>{{pctCTR .CTR}}</td>
+            <td>{{fmtFloat .Position 1}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    {{else}}<div class="empty">No Google Search Console data captured.</div>{{end}}
+  </details>
+
+  <details>
+    <summary><strong>SERP competitive gaps</strong> — {{.SERPTotal}} queries analysed, {{.SERPAI}} with AI Overviews, {{.SERPNotP1}} not on page 1</summary>
+    {{if .SERPQueries}}
+      <table>
+        <thead><tr><th>Query</th><th>Our pos</th><th>AIO</th><th>Top domains</th></tr></thead>
+        <tbody>
+        {{range .SERPQueries}}
+          <tr>
+            <td>{{truncate .Query 60}}</td>
+            <td>{{if gt .OurPosition 0}}{{.OurPosition}}{{else}}—{{end}}</td>
+            <td>{{yesNo .HasAIOverview}}</td>
+            <td class="small">{{range $i, $d := .TopDomains}}{{if lt $i 3}}{{if $i}}, {{end}}{{$d}}{{end}}{{end}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    {{else}}<div class="empty">No SERP data captured.</div>{{end}}
+  </details>
+
+  <details>
+    <summary><strong>Backlinks profile</strong>{{if .Backlinks}} — {{formatInt64 .Backlinks.TotalBacklinks}} backlinks, {{formatInt64 .Backlinks.TotalReferringDomains}} referring domains{{end}}</summary>
+    {{if .Backlinks}}
+      <table>
+        <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Total backlinks</td><td>{{formatInt64 .Backlinks.TotalBacklinks}}</td></tr>
+          <tr><td>Referring domains</td><td>{{formatInt64 .Backlinks.TotalReferringDomains}}</td></tr>
+          <tr><td>DoFollow</td><td>{{formatInt64 .Backlinks.DoFollow}}</td></tr>
+          <tr><td>NoFollow</td><td>{{formatInt64 .Backlinks.NoFollow}}</td></tr>
+          <tr><td>Broken backlinks</td><td>{{formatInt64 .Backlinks.BrokenBacklinks}}</td></tr>
+          <tr><td>Spam score</td><td>{{fmtFloat .Backlinks.SpamScore 0}}</td></tr>
+          <tr><td>Gap domains identified</td><td>{{len .Backlinks.GapDomains}}</td></tr>
+        </tbody>
+      </table>
+    {{else}}<div class="empty">No backlinks data captured.</div>{{end}}
+  </details>
+
+  <details>
+    <summary><strong>AEO visibility</strong>{{if .AEOData}} — {{.AEOPrompts}} prompts, {{.AEOResponses}} responses{{end}}</summary>
+    {{if .AEOData}}
+      {{if .HasAEOCoverage}}<p class="section-summary small">Brand-term coverage: {{pct .AEOCoverage}} of prompts mention a brand term.</p>{{end}}
+      <table>
+        <thead><tr><th>Prompt</th><th>Engines</th><th>Brand mentioned</th></tr></thead>
+        <tbody>
+        {{range .AEOData}}
+          <tr>
+            <td>{{truncate .Prompt 80}}</td>
+            <td>{{.EngineCount}}</td>
+            <td>{{yesNo .BrandMentioned}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    {{else}}<div class="empty">No AEO data captured. Run <code>sageo aeo ask</code>.</div>{{end}}
+  </details>
+</section>
+{{end}}

@@ -1,0 +1,25 @@
+{{define "cover.html"}}
+<section class="cover">
+  {{if .LogoDataURI}}<img class="logo" src="{{.LogoDataURI}}" alt="Logo">{{end}}
+  <h1>SEO Performance Report</h1>
+  <div class="site">{{.Site}}</div>
+  <div class="meta">Generated {{.GeneratedAt}}</div>
+  <div class="headline-grid">
+    <div class="headline-card">
+      <div class="label">Recommendations</div>
+      <div class="value">{{.RecCount}}</div>
+      <div class="caption">prioritised actions</div>
+    </div>
+    <div class="headline-card">
+      <div class="label">Forecast monthly clicks</div>
+      <div class="value">+{{formatInt .TotalLift}}</div>
+      <div class="caption">range {{formatInt .ForecastLow}}–{{formatInt .ForecastHigh}}</div>
+    </div>
+    <div class="headline-card">
+      <div class="label">Audit score</div>
+      <div class="value">{{fmtFloat .Score 0}}<span style="font-size:16px;color:var(--fg-muted)">/100</span></div>
+      <div class="caption">{{.PagesCrawled}} pages crawled</div>
+    </div>
+  </div>
+</section>
+{{end}}

@@ -118,7 +118,8 @@ Every paid code path flows through the same four gates:
 ### Reporting
 - `report generate` — JSON audit report
 - `report list` — list stored JSON reports
-- `report pdf` — styled client-ready PDF (cover, exec summary, per-source findings, recommendation cards, forecast table, optional appendix). Flags: `--output`, `--logo`, `--brand-color`, `--appendix`
+- `report html` — styled client-ready self-contained HTML (cover, exec summary, per-source findings, recommendation cards, sortable forecast table, optional appendix). Flags: `--output`, `--logo`, `--brand-color`, `--appendix`, `--open`, `--title`. Users print-to-PDF via the browser (Cmd/Ctrl+P).
+- `report pdf` — *deprecated* alias for `report html` (prints a warning, renders HTML)
 
 ### Authentication & config
 - `login` — interactive credential setup (GSC OAuth, DataForSEO)
@@ -216,8 +217,8 @@ Click-lift forecaster. Uses the Advanced Web Ranking 2024 position→CTR curve (
 ### `internal/pipeline`
 Orchestrates `sageo run`. Runs stages in order (crawl → audit → gsc → psi → serp → labs → backlinks → aeo → merge → recommendations → draft → forecast), enforces `--budget`, honours `--skip` / `--only` / `--resume` / `--dry-run` / `--approve`, and records progress in state so failures can resume.
 
-### `internal/report/pdf`
-PDF renderer for `sageo report pdf`. Produces cover, executive summary, per-source "what's broken" sections, recommendation cards (priority + evidence + before/after), forecast table, and optional raw-data appendix. Supports `--logo` and `--brand-color`.
+### `internal/report/html`
+HTML renderer for `sageo report html`. Produces a single self-contained HTML document with inlined CSS, minimal vanilla JS, and no external resources — opens in any browser and works offline. Sections: cover, executive summary, per-source "what's broken" (collapsible via `<details>`), recommendation cards (priority badge + evidence + before/after), sortable forecast table, and optional raw-data appendix. Includes an `@media print` stylesheet that expands all details, forces clean A4 page breaks, and keeps priority badges readable in monochrome — users produce a PDF via browser print-to-PDF (Cmd/Ctrl+P). Supports `--logo` (inlined as base64 data URI) and `--brand-color`.
 
 ### `internal/common/testutil`
 Shared unit-test helpers for network isolation — `NewFakeDataForSEO`, `NewFakeAnthropic`, `NewFakeOpenAI`, `NewFakePSI`. Enables zero-cost, zero-network unit tests against paid providers.

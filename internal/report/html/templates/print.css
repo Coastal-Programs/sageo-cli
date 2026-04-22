@@ -1,0 +1,91 @@
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11pt;
+  }
+
+  .container {
+    max-width: none;
+    padding: 0;
+  }
+
+  /* Hide interactive-only controls. */
+  .sort-hint,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Non-sortable in print: drop the cursor hint arrows. */
+  .sortable th {
+    cursor: default;
+  }
+  .sortable th::after {
+    content: '' !important;
+  }
+
+  /* Expand every <details> so nothing is hidden in the PDF. */
+  details {
+    page-break-inside: avoid;
+  }
+  details > summary {
+    list-style: none;
+    color: #000 !important;
+    font-weight: 600;
+    cursor: default;
+  }
+  details > summary::-webkit-details-marker { display: none; }
+  details[open] > summary { margin-bottom: 4px; }
+
+  /* Force all details open via CSS — browsers honour this when printing. */
+  details:not([open]) > *:not(summary) {
+    display: block !important;
+  }
+
+  /* Section breaks. */
+  section.page-break,
+  section.cover + section,
+  h1 {
+    page-break-before: always;
+  }
+  .cover {
+    page-break-after: always;
+  }
+  section:first-of-type, .cover {
+    page-break-before: auto;
+  }
+
+  /* Avoid awkward splits. */
+  h1, h2, h3 { page-break-after: avoid; }
+  table, .rec-card, .headline-card { page-break-inside: avoid; }
+  tr { page-break-inside: avoid; }
+
+  /* Monochrome-friendly: keep badges readable in B&W via borders. */
+  .badge {
+    border: 1px solid #000;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  .priority-high { background: #fff !important; border-color: #000 !important; font-weight: 800; }
+  .priority-med  { background: #fff !important; border-color: #444 !important; }
+  .priority-low  { background: #fff !important; border-color: #888 !important; }
+
+  .cover {
+    background: #fff !important;
+    color: #000 !important;
+    border: 1px solid #000;
+  }
+  .cover h1 { color: #000 !important; }
+  .headline-card .value { color: #000 !important; }
+
+  a, a:visited {
+    color: #000 !important;
+    text-decoration: underline;
+  }
+  thead th { background: #eee !important; color: #000 !important; }
+}

@@ -2,7 +2,7 @@
 
 ## Scope
 
-The CLI has working crawl, audit, report (JSON + PDF), provider, auth, GSC, PSI, SERP, AEO (multi-model + mentions), GEO, Labs, backlinks, merge, recommendations (merge → draft → forecast), LLM drafting (Anthropic/OpenAI), click-lift forecasting, autonomous pipeline (`sageo run`), and opportunities services.
+The CLI has working crawl, audit, report (JSON + HTML), provider, auth, GSC, PSI, SERP, AEO (multi-model + mentions), GEO, Labs, backlinks, merge, recommendations (merge → draft → forecast), LLM drafting (Anthropic/OpenAI), click-lift forecasting, autonomous pipeline (`sageo run`), and opportunities services.
 
 ### Implemented
 - **Autonomous run** — `sageo run <url>` drives the full pipeline end-to-end in a single command: crawl → audit → GSC → PSI → Labs → SERP → backlinks → AEO fan-out → mentions scan → merge → recommendations → LLM draft → forecast. Flags: `--budget`, `--skip`, `--only`, `--max-pages`, `--prompts`, `--dry-run`, `--approve`, `--resume`. Orchestrated by `internal/pipeline`; state persisted between stages so a failure can be resumed with `--resume`.
@@ -45,7 +45,7 @@ The CLI has working crawl, audit, report (JSON + PDF), provider, auth, GSC, PSI,
   - Rules 12–13: Backlinks-aware (weak-backlink-profile, broken-backlinks-found)
   - Rule 14: E-E-A-T (missing-author-signals) — emits ChangeAuthorByline + Person schema
 - Priority scoring system (10–100) with automatic sorting by urgency
-- `report pdf` command renders a styled, client-ready PDF (cover, exec summary, per-source "what's broken", recommendations cards, forecast table, optional appendix)
+- `report html` command renders a self-contained, styled HTML file (cover, exec summary, per-source "what's broken", recommendation cards, sortable forecast table, optional appendix). Users print-to-PDF via the browser (Cmd/Ctrl+P). `report pdf` is preserved as a deprecated alias.
 - Click-lift forecaster (`internal/forecast`) using the Advanced Web Ranking 2024 position→CTR curve, attached to recommendations via `recommendations.AttachForecasts` and exposed as `sageo recommendations forecast`
 - Merge rules emit concrete `Recommendation` objects (title, meta, H1, H2, schema, body, speed, backlink, indexability changes) persisted to state via `recommendations.UpsertRecommendations`
 - `sageo recommendations list` command with `--url`, `--type`, `--top`, `--format` flags
@@ -98,7 +98,7 @@ The CLI has working crawl, audit, report (JSON + PDF), provider, auth, GSC, PSI,
 - Recommendations: `internal/recommendations` (types aliased from `internal/state` to avoid import cycle)
 - State persistence: `internal/state`
 - Pipeline orchestrator: `internal/pipeline`
-- Domain packages: `internal/crawl`, `internal/audit`, `internal/report`, `internal/report/pdf`
+- Domain packages: `internal/crawl`, `internal/audit`, `internal/report`, `internal/report/html`
 - Forecast package: `internal/forecast` (position→CTR curve, swappable via `SetCurve`)
 - Test utilities: `internal/common/testutil` (fake HTTP servers for unit tests)
 
@@ -128,7 +128,7 @@ Command-specific payload shapes:
 - **Multi-model AEO** (`aeo responses --all` / `--models`): `data.results[]` — one row per engine/model with `{ engine, model, response, brand_mentions, error, cost }`; `metadata.estimated_cost` is the summed cost across all rows.
 - **Recommendations list / draft** (`recommendations list`, `recommendations draft`): `data.recommendations[]` where each item matches `state.Recommendation` (`id`, `target_url`, `target_query`, `change_type`, `current_value`, `recommended_value`, `rationale`, `evidence[]`, `priority`, `effort_minutes`, `forecasted_lift`, `merged_finding_id`, `created_at`).
 - **Forecast** (`recommendations forecast`): `data.forecasts[]` where each item is `{ recommendation_id, target_url, change_type, forecast: { estimated_monthly_clicks_delta, confidence_low, confidence_high, method } }`.
-- **PDF report** (`report pdf`): non-envelope side effect — writes a binary PDF to `--output`; stdout emits `{ success, data: { path, pages, bytes } }`.
+- **HTML report** (`report html`): non-envelope side effect — writes a self-contained HTML file to `--output`; stdout emits `{ success, data: { path, size_bytes } }`. Users produce a PDF via browser print-to-PDF (Cmd/Ctrl+P). `report pdf` remains as a deprecated alias routed to the HTML renderer.
 
 ## Configuration
 

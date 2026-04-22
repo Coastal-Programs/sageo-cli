@@ -41,7 +41,7 @@ Crawling, auditing, and PageSpeed Insights are free. Paid features (SERP, keywor
 - **LLM copy drafting** — Anthropic or OpenAI drivers fill `recommended_value` with real copy, validated against SERP length limits
 - **Click-lift forecaster** — attaches estimated monthly clicks delta per recommendation using the AWR 2024 position→CTR curve
 - **`sageo run` autonomous pipeline** — crawl → audit → GSC → PSI → Labs → SERP → backlinks → AEO fan-out → mentions → merge → recommend → draft → forecast, with `--budget`, `--skip`, `--only`, `--resume`, `--approve`
-- **PDF report** — styled, client-ready PDF (cover, exec summary, per-source findings, recommendation cards, forecast table, optional appendix)
+- **HTML report** — styled, client-ready self-contained HTML file (cover, exec summary, per-source findings, recommendation cards, sortable forecast table, optional appendix). For a PDF, open the file in your browser and press Cmd/Ctrl+P → Save as PDF.
 
 ## Install
 
@@ -81,7 +81,7 @@ The fastest path — one autonomous run plus a PDF:
 ```bash
 sageo login
 sageo run https://yoursite.com --budget 5
-sageo report pdf
+sageo report html
 ```
 
 That single `run` drives crawl → audit → GSC → PSI → Labs → SERP → backlinks → AEO → merge → recommendations → LLM draft → forecast, capped at $5 of paid API spend.
@@ -112,8 +112,9 @@ sageo recommendations list --top 20
 sageo recommendations draft --limit 20
 sageo recommendations forecast
 
-# 7. Render the client-ready PDF
-sageo report pdf --output ./report.pdf
+# 7. Render the client-ready report
+sageo report html --output ./report.html
+# (open in a browser and press Cmd/Ctrl+P → Save as PDF for a PDF copy)
 
 # 8. Check your status
 sageo status
@@ -243,13 +244,22 @@ sageo run https://yoursite.com --resume             # pick up from last successf
 sageo run https://yoursite.com --dry-run            # estimate only, no paid calls
 ```
 
-### PDF report
+### HTML report
+
+The primary report output is a single self-contained HTML file (inlined CSS,
+minimal vanilla JS, no external resources — works offline). For a PDF, open
+the file in any modern browser and press **Cmd+P** (macOS) or **Ctrl+P**
+(Linux/Windows) and choose *Save as PDF*.
 
 ```bash
-sageo report pdf
-sageo report pdf --output ./client-report.pdf --logo ./logo.png --brand-color '#1E40AF'
-sageo report pdf --appendix
+sageo report html
+sageo report html --output ./client-report.html --logo ./logo.png --brand-color '#1E40AF'
+sageo report html --appendix
+sageo report html --open            # open in default browser after generation
 ```
+
+> `sageo report pdf` is kept as a deprecated alias that prints a warning and
+> produces the same HTML output.
 
 ### GEO (Generative Engine Optimization)
 
