@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jakeschepis/sageo-cli/internal/common/config"
@@ -105,8 +106,17 @@ Supported models: chatgpt, claude, gemini, perplexity`,
 			if endpointErr != nil {
 				return output.PrintCodedError(output.ErrAEOFailed, "invalid model", endpointErr, nil, output.Format(*format))
 			}
+			modelName, modelNameErr := defaultModelNameForEngine(model)
+			if modelNameErr != nil {
+				return output.PrintCodedError(output.ErrAEOFailed, "invalid model", modelNameErr, nil, output.Format(*format))
+			}
+			// DataForSEO requires `user_prompt` (not `prompt`) and `model_name`.
+			// See: https://docs.dataforseo.com/v3/ai_optimization-chat_gpt-llm_responses-live/
 			reqBody := []map[string]any{
-				{"prompt": prompt},
+				{
+					"user_prompt": prompt,
+					"model_name":  modelName,
+				},
 			}
 
 			raw, err := client.Post(endpoint, reqBody)
@@ -114,6 +124,12 @@ Supported models: chatgpt, claude, gemini, perplexity`,
 				return output.PrintCodedError(output.ErrAEOFailed, "LLM responses request failed", err, nil, output.Format(*format))
 			}
 
+			// Response shape per DataForSEO docs:
+			//   tasks[].result[].{ model_name, items[].sections[].{type,text} }
+			// Text sections are concatenated to produce the flat `response`
+			// string this command returns. Non-text sections (if any) are
+			// ignored for now — extend the struct if structured output is
+			// needed downstream.
 			var envelope struct {
 				StatusCode    int    `json:"status_code"`
 				StatusMessage string `json:"status_message"`
@@ -121,9 +137,14 @@ Supported models: chatgpt, claude, gemini, perplexity`,
 					StatusCode    int    `json:"status_code"`
 					StatusMessage string `json:"status_message"`
 					Result        []struct {
-						Prompt   string `json:"prompt"`
-						Response string `json:"response"`
-						Model    string `json:"model"`
+						ModelName string `json:"model_name"`
+						Items     []struct {
+							Type     string `json:"type"`
+							Sections []struct {
+								Type string `json:"type"`
+								Text string `json:"text"`
+							} `json:"sections"`
+						} `json:"items"`
 					} `json:"result"`
 				} `json:"tasks"`
 			}
@@ -137,18 +158,38 @@ Supported models: chatgpt, claude, gemini, perplexity`,
 					fmt.Sprintf("DataForSEO error %d: %s", envelope.StatusCode, envelope.StatusMessage),
 					fmt.Errorf("code %d", envelope.StatusCode), nil, output.Format(*format))
 			}
-			if len(envelope.Tasks) == 0 || len(envelope.Tasks[0].Result) == 0 {
+			if len(envelope.Tasks) == 0 {
+				return output.PrintCodedError(output.ErrAEOFailed, "no tasks returned",
+					fmt.Errorf("dataforseo response contained no tasks"), nil, output.Format(*format))
+			}
+			// Surface per-task failures (e.g. 40503 "POST Data Is Invalid"),
+			// which DataForSEO returns with a 20000 top-level envelope.
+			taskResult := envelope.Tasks[0]
+			if taskResult.StatusCode != 20000 {
+				return output.PrintCodedError(output.ErrAEOFailed,
+					fmt.Sprintf("DataForSEO task error %d: %s", taskResult.StatusCode, taskResult.StatusMessage),
+					fmt.Errorf("task status %d", taskResult.StatusCode), nil, output.Format(*format))
+			}
+			if len(taskResult.Result) == 0 {
 				return output.PrintCodedError(output.ErrAEOFailed, "no results returned",
 					fmt.Errorf("dataforseo returned empty task result"), nil, output.Format(*format))
 			}
 
-			result := envelope.Tasks[0].Result[0]
+			result := taskResult.Result[0]
+			var responseText strings.Builder
+			for _, item := range result.Items {
+				for _, section := range item.Sections {
+					if section.Type == "text" {
+						responseText.WriteString(section.Text)
+					}
+				}
+			}
 			meta["fetched_at"] = time.Now().Format(time.RFC3339)
 
 			return output.PrintSuccess(map[string]any{
-				"prompt":   result.Prompt,
-				"response": result.Response,
-				"model":    result.Model,
+				"prompt":   prompt,
+				"response": responseText.String(),
+				"model":    result.ModelName,
 			}, meta, output.Format(*format))
 		},
 	}
@@ -220,17 +261,23 @@ func newAEOKeywordsCmd(format *string, verbose *bool) *cobra.Command {
 
 			client := dataforseo.New(cfg.DataForSEOLogin, cfg.DataForSEOPassword)
 
+			// DataForSEO expects `keywords` (plural, array) and requires
+			// `location_name` or `location_code`. Default to United States /
+			// English when not provided so the command works out of the box.
+			// See: https://docs.dataforseo.com/v3/ai_optimization-ai_keyword_data-keywords_search_volume-live/
+			if location == "" {
+				location = "United States"
+			}
+			if language == "" {
+				language = "en"
+			}
 			task := map[string]any{
-				"keyword": keyword,
-			}
-			if location != "" {
-				task["location_name"] = location
-			}
-			if language != "" {
-				task["language_code"] = language
+				"keywords":      []string{keyword},
+				"location_name": location,
+				"language_code": language,
 			}
 
-			raw, err := client.Post("/v3/ai_optimization/ai_keyword_data/search_volume/live", []map[string]any{task})
+			raw, err := client.Post("/v3/ai_optimization/ai_keyword_data/keywords_search_volume/live", []map[string]any{task})
 			if err != nil {
 				return output.PrintCodedError(output.ErrAEOFailed, "AI keyword data request failed", err, nil, output.Format(*format))
 			}
@@ -288,5 +335,26 @@ func aeoEndpointForModel(model string) (string, error) {
 		return "/v3/ai_optimization/perplexity/llm_responses/live", nil
 	default:
 		return "", fmt.Errorf("unsupported model %q: valid values: chatgpt, claude, gemini, perplexity", model)
+	}
+}
+
+// defaultModelNameForEngine returns the DataForSEO `model_name` default for
+// each friendly engine alias. DataForSEO requires this field on every
+// llm_responses/live request; without it the API rejects the task with
+// 40501 "Invalid Field: 'model_name'". Defaults are picked to be fast and
+// inexpensive baselines — the full model catalog per engine is available at
+// /v3/ai_optimization/<engine>/llm_responses/models.
+func defaultModelNameForEngine(engine string) (string, error) {
+	switch engine {
+	case "chatgpt":
+		return "gpt-4o-mini", nil
+	case "claude":
+		return "claude-haiku-4-5", nil
+	case "gemini":
+		return "gemini-2.5-flash-lite", nil
+	case "perplexity":
+		return "sonar", nil
+	default:
+		return "", fmt.Errorf("unsupported engine %q: valid values: chatgpt, claude, gemini, perplexity", engine)
 	}
 }
