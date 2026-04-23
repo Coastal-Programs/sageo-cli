@@ -51,7 +51,7 @@ func newLabsRankedKeywordsCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
@@ -222,7 +222,7 @@ func newLabsKeywordsCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
@@ -347,7 +347,7 @@ func newLabsOverviewCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
@@ -458,7 +458,7 @@ func newLabsCompetitorsCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
@@ -601,7 +601,7 @@ func newLabsKeywordIdeasCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
@@ -755,7 +755,7 @@ func newLabsBulkDifficultyCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {

@@ -35,7 +35,7 @@ Optionally enrich with live SERP data for validation (paid, supports --dry-run).
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			// GSC auth check
@@ -45,13 +45,15 @@ Optionally enrich with live SERP data for validation (paid, supports --dry-run).
 				return output.PrintCodedError(output.ErrAuthFailed, "failed to check auth status", err, nil, output.Format(*format))
 			}
 			if !st.Authenticated {
-				return output.PrintCodedError(output.ErrAuthRequired, "not authenticated with GSC",
-					fmt.Errorf("run 'sageo auth login gsc' first (token may be missing or expired)"), nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrAuthRequired, "not authenticated with GSC",
+					"sageo auth login gsc",
+					fmt.Errorf("token missing or expired"), nil, output.Format(*format))
 			}
 			token, err := store.Load("gsc")
 			if err != nil {
-				return output.PrintCodedError(output.ErrAuthRequired, "not authenticated with GSC",
-					fmt.Errorf("run 'sageo auth login gsc' first"), nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrAuthRequired, "not authenticated with GSC",
+					"sageo auth login gsc",
+					nil, nil, output.Format(*format))
 			}
 
 			if cfg.GSCProperty == "" {

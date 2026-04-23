@@ -51,7 +51,7 @@ func newSERPAnalyzeCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			provider, err := serpProvider(cfg)
@@ -167,7 +167,7 @@ func newSERPCompareCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			provider, err := serpProvider(cfg)
@@ -276,7 +276,7 @@ Costs $0.0006/keyword (vs $0.002 live) — 70% cheaper for bulk analysis.`,
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {

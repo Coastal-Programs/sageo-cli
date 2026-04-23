@@ -24,4 +24,6 @@ const (
 	ErrLabsFailed        = "LABS_FAILED"
 	ErrPSIFailed         = "PSI_FAILED"
 	ErrBacklinksFailed   = "BACKLINKS_FAILED"
+	ErrNoProject         = "NO_PROJECT"
+	ErrGSCNotConfigured  = "GSC_NOT_CONFIGURED"
 )

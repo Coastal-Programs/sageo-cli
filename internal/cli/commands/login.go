@@ -287,6 +287,11 @@ func runGSCLoginForm(format *string, verbose *bool) error {
 
 	fmt.Println(loginSuccessStyle.Render("✓ Google OAuth authenticated (GSC + PSI)"))
 	fmt.Println()
+	printNextSteps(os.Stderr, []string{
+		"sageo gsc sites list",
+		"sageo gsc sites use <property>",
+		"sageo run <url> --budget 10",
+	})
 	return nil
 }
 

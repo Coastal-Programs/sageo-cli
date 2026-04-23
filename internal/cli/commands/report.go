@@ -61,9 +61,10 @@ resources, works offline. To get a PDF, open the file in any modern browser and
 press Cmd+P (macOS) or Ctrl+P (Linux/Windows), then choose "Save as PDF".`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
-				return output.PrintCodedError(
-					"NO_PROJECT",
-					"No project initialized: run sageo init --url <site>",
+				return output.PrintCodedErrorWithHint(
+					output.ErrNoProject,
+					"No project initialized in this directory",
+					"sageo init --url <site>",
 					nil, nil,
 					output.Format(*format),
 				)
@@ -197,7 +198,7 @@ func newReportGenerateCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			fetcher, err := provider.NewFetcher(cfg.ActiveProvider)

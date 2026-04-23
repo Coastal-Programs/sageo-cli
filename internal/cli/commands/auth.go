@@ -105,12 +105,13 @@ func newAuthLogoutCmd(format *string, verbose *bool) *cobra.Command {
 func loginGSC(format *string, verbose *bool) error {
 	cfg, err := config.Load()
 	if err != nil {
-		return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+		return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 	}
 
 	if cfg.GSCClientID == "" || cfg.GSCClientSecret == "" {
-		return output.PrintCodedError(output.ErrAuthRequired, "GSC client credentials not configured",
-			fmt.Errorf("set gsc_client_id and gsc_client_secret via 'sageo config set'"), nil, output.Format(*format))
+		return output.PrintCodedErrorWithHint(output.ErrAuthRequired, "GSC client credentials not configured",
+			"Set gsc_client_id and gsc_client_secret via `sageo config set`, or run `sageo login` for an interactive setup.",
+			fmt.Errorf("missing gsc_client_id/gsc_client_secret"), nil, output.Format(*format))
 	}
 
 	stateBytes := make([]byte, 16)

@@ -75,7 +75,7 @@ func newGSCSitesUseCmd(format *string, verbose *bool) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			cfg.GSCProperty = args[0]
@@ -571,14 +571,16 @@ func gscClient(format *string) (*gsc.Client, error) {
 	if !st.Authenticated {
 		token, loadErr := store.Load("gsc")
 		if loadErr != nil || token.RefreshToken == "" {
-			return nil, output.PrintCodedError(output.ErrAuthRequired, "not authenticated with GSC",
-				fmt.Errorf("run 'sageo login' first (token may be missing or expired)"), nil, output.Format(*format))
+			return nil, output.PrintCodedErrorWithHint(output.ErrAuthRequired, "not authenticated with GSC",
+				"sageo auth login gsc",
+				fmt.Errorf("token missing or expired"), nil, output.Format(*format))
 		}
 
 		cfg, cfgErr := config.Load()
 		if cfgErr != nil || cfg.GSCClientID == "" || cfg.GSCClientSecret == "" {
-			return nil, output.PrintCodedError(output.ErrAuthRequired, "not authenticated with GSC",
-				fmt.Errorf("run 'sageo login' first (cannot refresh — missing client credentials)"), nil, output.Format(*format))
+			return nil, output.PrintCodedErrorWithHint(output.ErrAuthRequired, "not authenticated with GSC",
+				"sageo auth login gsc",
+				fmt.Errorf("cannot refresh — missing client credentials"), nil, output.Format(*format))
 		}
 
 		refreshed, refreshErr := store.RefreshGSCToken(cfg.GSCClientID, cfg.GSCClientSecret)
@@ -592,7 +594,7 @@ func gscClient(format *string) (*gsc.Client, error) {
 
 	token, err := store.Load("gsc")
 	if err != nil {
-		return nil, output.PrintCodedError(output.ErrAuthRequired, "not authenticated with GSC", fmt.Errorf("run 'sageo login' first"), nil, output.Format(*format))
+		return nil, output.PrintCodedErrorWithHint(output.ErrAuthRequired, "not authenticated with GSC", "sageo auth login gsc", nil, nil, output.Format(*format))
 	}
 
 	return gsc.NewClient(token.AccessToken), nil
@@ -607,7 +609,7 @@ func gscClientAndProperty(format *string) (*gsc.Client, string, error) {
 
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, "", output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+		return nil, "", output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 	}
 
 	if cfg.GSCProperty == "" {

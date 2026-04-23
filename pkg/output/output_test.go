@@ -100,6 +100,42 @@ func TestPrintCodedErrorJSONEnvelope(t *testing.T) {
 	}
 }
 
+func TestPrintCodedErrorWithHintJSONEnvelope(t *testing.T) {
+	captured := captureStdout(t, func() {
+		_ = PrintCodedErrorWithHint(ErrInvalidURL, "bad url", "Use a full URL, for example https://example.com/", nil, nil, FormatJSON)
+	})
+
+	var env map[string]any
+	if err := json.Unmarshal([]byte(captured), &env); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	errObj, ok := env["error"].(map[string]any)
+	if !ok {
+		t.Fatal("missing or invalid 'error' key in envelope")
+	}
+	if errObj["hint"] != "Use a full URL, for example https://example.com/" {
+		t.Fatalf("expected error.hint to be set, got %v", errObj["hint"])
+	}
+}
+
+func TestPrintCodedErrorWithHintOmitsWhenEmpty(t *testing.T) {
+	captured := captureStdout(t, func() {
+		_ = PrintCodedError(ErrInvalidURL, "bad url", nil, nil, FormatJSON)
+	})
+
+	var env map[string]any
+	if err := json.Unmarshal([]byte(captured), &env); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	errObj, ok := env["error"].(map[string]any)
+	if !ok {
+		t.Fatal("missing or invalid 'error' key in envelope")
+	}
+	if _, ok := errObj["hint"]; ok {
+		t.Fatal("error envelope should omit 'hint' when hint is empty")
+	}
+}
+
 func TestSuccessEnvelopeOmitsErrorKey(t *testing.T) {
 	captured := captureStdout(t, func() {
 		err := PrintSuccess("ok", nil, FormatJSON)

@@ -14,6 +14,7 @@ Cost tier legend: **Free**, **Free+OAuth**, **Paid** (DataForSEO micro), **Paid 
 | `sageo status` | Free | Show `sources_used`, `sources_missing`, `pipeline_cursor` |
 | `sageo analyze` | Free | Merge all stored sources into findings + recommendations |
 | `sageo version` | Free | Print version and build metadata |
+| `sageo doctor` | Free | Run diagnostic checks on project state, config, and auth. Use first when setup is unclear. Exit 1 if any check fails; warnings never fail. |
 
 ## Auth and config
 
@@ -121,8 +122,10 @@ Cost tier legend: **Free**, **Free+OAuth**, **Paid** (DataForSEO micro), **Paid 
 
 | Command | Tier | Purpose |
 |---|---|---|
-| `sageo recommendations list [--top 20] [--url PAGE] [--type title|meta|h1|h2|schema|body|speed|backlink|indexability]` | Free | Read stored recommendations sorted by priority |
-| `sageo recommendations draft [--limit 20] [--provider anthropic|openai] [--type T] [--url U] [--dry-run]` | Paid LLM | Fill empty `recommended_value` with LLM copy. Output starts `pending_review` |
+| `sageo recommendations list [--top 20] [--url PAGE] [--type <raw>]` | Free | Read stored recommendations sorted by priority. `--type` does an exact match against the raw ChangeType value (not short-form) |
+| `sageo recommendations draft [--limit 20] [--provider anthropic|openai] [--type <raw>] [--url U] [--dry-run]` | Paid LLM | Fill empty `recommended_value` with LLM copy. Output starts `pending_review`. Non-copy types (`speed_fix`, `backlink_outreach`, `indexability_fix`) are accepted by the flag but are no-ops during drafting |
+
+Valid `--type` values (raw ChangeType, exact match): `title`, `meta_description`, `h1`, `h2_add`, `schema_add`, `body_expand`, `internal_link_add`, `speed_fix`, `backlink_outreach`, `indexability_fix`, `tldr_add`, `list_format`, `author_byline`, `freshness_refresh`, `entity_consistency`. Short forms (`meta`, `h2`, `body`, `speed`, `backlink`, `indexability`) will silently return zero rows — that is a bug in older copies of this doc, not a feature.
 | `sageo recommendations review [--type T] [--url U] [--reviewer NAME] [--auto-approve-under-priority N] [--format interactive|json]` | Free | MANDATORY human gate before reports. Approve / edit / reject each draft |
 | `sageo recommendations forecast` | Free | Attach priority tier and click-delta range; reads `.sageo/calibration.json` |
 
@@ -130,7 +133,7 @@ Cost tier legend: **Free**, **Free+OAuth**, **Paid** (DataForSEO micro), **Paid 
 
 | Command | Tier | Purpose |
 |---|---|---|
-| `sageo run <url> [--budget USD] [--max-pages N] [--skip a,b] [--only a,b] [--resume] [--approve] [--dry-run] [--prompts FILE] [--no-review] [--no-snapshot] [--retain N] [--retain-within 2160h]` | Varies | Full pipeline: `crawl → audit → gsc → psi → serp → labs → backlinks → aeo → merge → recommend → draft → forecast`. Writes a snapshot |
+| `sageo run <url> [--budget USD] [--max-pages N] [--skip a,b] [--only a,b] [--resume] [--approve] [--dry-run] [--prompts FILE] [--no-review] [--no-snapshot] [--retain N] [--retain-within 2160h]` | Varies | **Hard-aborts with `GSC_NOT_CONFIGURED` when no GSC property is selected** (opt out via `--skip gsc`). Full pipeline: `crawl → audit → gsc → psi → labs → serp → backlinks → aeo → aeo-mentions → merge → recommendations → draft → forecast → review_gate`. Writes a snapshot. The one-liner in `sageo run --help` shows a stale order; `buildRunStages` in `internal/cli/commands/run.go` and a snapshot's `stages_run` are authoritative |
 
 `--auto-approve-all` exists but is labelled UNSAFE; never use for client-facing output.
 

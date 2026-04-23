@@ -1,59 +1,55 @@
 package commands
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 )
 
-// TestPreflightGSCWarning_FiresWhenUnconfigured verifies the pre-flight
-// warning emits a loud, actionable stderr message when the user is about
-// to run the full pipeline with no active GSC property. This is the
-// guard against the silent-skip failure mode that produced 20
-// unknown-tier recommendations on the baysidebuilderswa.com.au run.
-func TestPreflightGSCWarning_FiresWhenUnconfigured(t *testing.T) {
-	var buf bytes.Buffer
-	preflightGSCWarningWithProperty(&buf, map[string]bool{}, map[string]bool{}, "")
-
-	out := buf.String()
+// TestPreflightGSCCheck_AbortsWhenUnconfigured verifies the pre-flight
+// gate returns an error when the user is about to run the full pipeline
+// with no active GSC property. This is the guard against the silent-skip
+// failure mode that produced 20 unknown-tier recommendations on the
+// baysidebuilderswa.com.au run.
+func TestPreflightGSCCheck_AbortsWhenUnconfigured(t *testing.T) {
+	err := preflightGSCCheck(map[string]bool{}, map[string]bool{}, "")
+	if err == nil {
+		t.Fatal("expected non-nil preflight error when gsc_property is empty")
+	}
+	if !strings.Contains(err.Error(), "no GSC property configured") {
+		t.Errorf("unexpected error message: %q", err.Error())
+	}
+	hint := err.Hint()
 	for _, want := range []string{
-		"WARNING",
-		"no GSC property configured",
-		"priority_tier=unknown",
+		"sageo auth login gsc",
 		"sageo gsc sites use",
+		"--skip gsc",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected warning to contain %q, got:\n%s", want, out)
+		if !strings.Contains(hint, want) {
+			t.Errorf("expected hint to contain %q, got:\n%s", want, hint)
 		}
 	}
 }
 
-// TestPreflightGSCWarning_SilentWhenSkipped verifies --skip gsc
-// suppresses the warning (user has explicitly opted out).
-func TestPreflightGSCWarning_SilentWhenSkipped(t *testing.T) {
-	var buf bytes.Buffer
-	preflightGSCWarningWithProperty(&buf, map[string]bool{stageGSC: true}, map[string]bool{}, "")
-	if buf.Len() != 0 {
-		t.Errorf("expected no output with --skip gsc, got: %s", buf.String())
+// TestPreflightGSCCheck_SilentWhenSkipped verifies --skip gsc suppresses
+// the gate (user has explicitly opted out).
+func TestPreflightGSCCheck_SilentWhenSkipped(t *testing.T) {
+	if err := preflightGSCCheck(map[string]bool{stageGSC: true}, map[string]bool{}, ""); err != nil {
+		t.Errorf("expected nil with --skip gsc, got: %v", err)
 	}
 }
 
-// TestPreflightGSCWarning_SilentWhenOnlyExcludesGSC verifies --only
-// without gsc also suppresses the warning.
-func TestPreflightGSCWarning_SilentWhenOnlyExcludesGSC(t *testing.T) {
-	var buf bytes.Buffer
-	preflightGSCWarningWithProperty(&buf, map[string]bool{}, map[string]bool{"crawl": true, "psi": true}, "")
-	if buf.Len() != 0 {
-		t.Errorf("expected no output when --only excludes gsc, got: %s", buf.String())
+// TestPreflightGSCCheck_SilentWhenOnlyExcludesGSC verifies --only without
+// gsc also suppresses the gate.
+func TestPreflightGSCCheck_SilentWhenOnlyExcludesGSC(t *testing.T) {
+	if err := preflightGSCCheck(map[string]bool{}, map[string]bool{"crawl": true, "psi": true}, ""); err != nil {
+		t.Errorf("expected nil when --only excludes gsc, got: %v", err)
 	}
 }
 
-// TestPreflightGSCWarning_SilentWhenConfigured verifies the warning
-// does not fire when gsc_property is already set.
-func TestPreflightGSCWarning_SilentWhenConfigured(t *testing.T) {
-	var buf bytes.Buffer
-	preflightGSCWarningWithProperty(&buf, map[string]bool{}, map[string]bool{}, "https://example.com/")
-	if buf.Len() != 0 {
-		t.Errorf("expected no output when gsc_property is set, got: %s", buf.String())
+// TestPreflightGSCCheck_SilentWhenConfigured verifies the gate does not
+// fire when gsc_property is already set.
+func TestPreflightGSCCheck_SilentWhenConfigured(t *testing.T) {
+	if err := preflightGSCCheck(map[string]bool{}, map[string]bool{}, "https://example.com/"); err != nil {
+		t.Errorf("expected nil when gsc_property is set, got: %v", err)
 	}
 }

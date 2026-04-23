@@ -1,6 +1,6 @@
 ---
 name: sageo
-description: Run SEO, AEO, and GEO audits with the Sageo CLI (crawl, audit, GSC, PSI, SERP, Labs, backlinks, AI brand mentions, recommendations, snapshots, compare, HTML report). Use when the user asks to audit a website, analyse Core Web Vitals, track keyword rankings, check AI Overview or brand mentions across ChatGPT / Claude / Gemini / Perplexity, diff two runs, or generate a client-ready HTML report with the `sageo` command-line tool.
+description: Run SEO, AEO, and GEO audits with the Sageo CLI. Use when auditing a website, analysing Core Web Vitals, tracking keyword rankings, checking AI Overview or brand-mention coverage across ChatGPT/Claude/Gemini/Perplexity, diffing two audit runs, or generating a client-ready HTML report.
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
@@ -36,9 +36,22 @@ Every command returns this envelope on stdout. Rely on it, never scrape text:
 
 Parse with `jq`. Default format is `json`. Use `-o text` / `-o table` only when the user wants human output. `sageo compare` defaults to `text` (override with `--format json`). `sageo report html` writes an `.html` file; stdout stays JSON.
 
+Some commands log progress to **stderr** before emitting the JSON envelope on stdout (notably `sageo recommendations forecast` — one line per skipped row). Always redirect stderr (`2>/dev/null`) when piping to `jq`, or keep it separate (`2> err.log | jq ...`).
+
+## Honest framing rules
+
+Read these before running any flow. Agents presenting Sageo output to humans MUST follow them — they are not disclaimers, they are how the tool behaves.
+
+1. **Quote priority tiers, not specific click numbers.** The primary signal is `priority_tier`: `high`, `medium`, `low`, `unknown`. If a range is quoted, quote it as a range with the tier attached. "High tier, estimated 200 to 500 clicks/mo, calibrated against 42 prior outcomes on this site." Never "you will get 347 more clicks". On cold projects without calibration data, the tier may be derived from the rule-engine priority score (>=80 High, >=50 Medium, else Low) and is rendered with a `(provisional)` badge; treat these as directional until historical outcomes accumulate.
+2. **Surface caveats every time.** The forecaster emits `caveats[]` like `low_search_volume`, `short_history`, `insufficient_data`, `insufficient_calibration_data`, `uncalibrated`. Pass these through to the user.
+3. **Observational data is not causal.** `compare` output is correlational (see `data.caveats[]`). Algorithm updates, seasonality, and concurrent work are not controlled for. Say so.
+4. **LLM drafts are a starting point.** `recommended_value` written by `recommendations draft` is `pending_review`. Never present it as publish-ready. Require `sageo recommendations review` before it hits a report.
+5. **When calibration is thin, say so.** If `calibration_samples` is low or `calibrated: false` with `confidence_label: "insufficient_data"`, explicitly state confidence is low. Do not fabricate certainty.
+6. **Tier recommendations by evidence strength.** Every ChangeType maps to a section in `docs/research/ai-citation-signals-2026.md`. Some are `confirmed` (Google schema for AIO). Some are `likely` (direct-answer blocks, backlinks). Some are `unclear` (FAQPage, `llms.txt`). Never upgrade "likely" to "proven".
+
 ## The recommended flow
 
-For almost every "audit this site" request, use this exact sequence. Do not skip steps 2 and 3 — without an active GSC property, every forecast collapses to `priority_tier: unknown` and recommendations lose their search-volume signal.
+For almost every "audit this site" request, use this exact sequence. Do not skip steps 2 and 3 — without an active GSC property, every forecast collapses to `priority_tier: unknown` and recommendations lose their search-volume signal. Run `sageo doctor` if any step is unclear; it will name every missing piece and the exact command to fix it.
 
 ```bash
 # 1. Project setup
@@ -64,9 +77,9 @@ sageo report html --open
 
 **Do not run `sageo audit run` standalone before `sageo run`.** `sageo run` already includes the audit stage. The standalone `sageo audit run` subcommand is for isolated re-audits only.
 
-`sageo run` stages (run in order): `crawl → audit → gsc → psi → serp → labs → backlinks → aeo → merge → recommend → draft → forecast`, ending at a `review_gate` stage that is non-interactive unless `--no-review` / `--auto-approve-all` is passed. Every run writes a snapshot under `.sageo/snapshots/<utc-ts>/` (disable with `--no-snapshot`) and mirrors the rendered report to `.sageo/reports/latest.html`.
+`sageo run` stages (run in order, per `buildRunStages` in `internal/cli/commands/run.go`): `crawl → audit → gsc → psi → labs → serp → backlinks → aeo → aeo-mentions → merge → recommendations → draft → forecast`, ending at a `review_gate` stage that is non-interactive unless `--no-review` / `--auto-approve-all` is passed. Every run writes a snapshot under `.sageo/snapshots/<utc-ts>/` (disable with `--no-snapshot`) and mirrors the rendered report to `.sageo/reports/latest.html`. Note: the one-liner in `sageo run --help` currently lists a different order; trust the source and the snapshot's `stages_run` field.
 
-**If you see `!! WARNING: no GSC property configured` in stderr when starting `sageo run`, stop immediately.** That warning means the flow above was not followed. Ctrl-C, run step 3, then restart step 4. Continuing past the warning produces a useless audit.
+**`sageo run` now hard-aborts when no GSC property is selected.** The pre-flight returns error code `GSC_NOT_CONFIGURED` with a `hint` naming the three commands to fix it (`sageo auth login gsc`, `sageo gsc sites list`, `sageo gsc sites use <property>`). Run those, then re-run. To deliberately skip GSC, pass `--skip gsc`.
 
 Key `run` flags:
 - `--budget <USD>`: hard ceiling for total paid spend (0 = no cap)
@@ -88,23 +101,41 @@ sageo compare --output-html ./diff-$(date +%F).html
 
 `compare` infers which earlier recommendations were "addressed" via per-ChangeType detectors (cleared audit finding, PSI crossing the good-band threshold, schema appearing in the crawl, referring-domain growth). When both snapshots have paired GSC data for an addressed recommendation, an `ObservedLift` record is appended to `.sageo/calibration.json`. Subsequent forecasts use this history.
 
-## Honest framing rules
-
-Agents presenting Sageo output to humans MUST follow these. They are not disclaimers; they are how the tool behaves.
-
-1. **Quote priority tiers, not specific click numbers.** The primary signal is `priority_tier`: `high`, `medium`, `low`, `unknown`. If a range is quoted, quote it as a range with the tier attached. "High tier, estimated 200 to 500 clicks/mo, calibrated against 42 prior outcomes on this site." Never "you will get 347 more clicks". On cold projects without calibration data, the tier may be derived from the rule-engine priority score (>=80 High, >=50 Medium, else Low) and is rendered with a `(provisional)` badge; treat these as directional until historical outcomes accumulate.
-2. **Surface caveats every time.** The forecaster emits `caveats[]` like `low_search_volume`, `short_history`, `insufficient_data`, `uncalibrated`. Pass these through to the user.
-3. **Observational data is not causal.** `compare` output is correlational. Algorithm updates, seasonality, and concurrent work are not controlled for. Say so.
-4. **LLM drafts are a starting point.** `recommended_value` written by `recommendations draft` is `pending_review`. Never present it as publish-ready. Require `sageo recommendations review` before it hits a report.
-5. **When calibration is thin, say so.** If `calibration_samples < MinSampleOverall` (20) or the forecast is flagged `uncalibrated: true`, explicitly state confidence is low. Do not fabricate certainty.
-6. **Tier recommendations by evidence strength.** Every ChangeType maps to a section in `docs/research/ai-citation-signals-2026.md`. Some are `confirmed` (Google schema for AIO). Some are `likely` (direct-answer blocks, backlinks). Some are `unclear` (FAQPage, `llms.txt`). Never upgrade "likely" to "proven".
-
 ## State, snapshots, and calibration
 
 - **State file** `.sageo/state.json`: single source of truth for the current run. Per-source keys: `gsc`, `psi`, `serp`, `labs`, `backlinks`, `aeo`, `mentions`, `findings`, `merged_findings`, `recommendations`, `pipeline_cursor`, `pipeline_runs`, `history`. Inspect with `sageo status` or `jq`. Never hand-edit.
 - **Snapshots** `.sageo/snapshots/<utc-ts>/`: a frozen copy of state + recommendations + HTML report + metadata, written atomically by `sageo run`. Previous runs are never overwritten. Manage with `sageo snapshots list|show|path|prune`.
 - **Calibration** `.sageo/calibration.json`: append-only `ObservedLift` records written by `compare` when a recommendation was addressed and both snapshots have paired GSC data. The forecaster reads this on every `recommendations forecast` call; thresholds: per-ChangeType calibration at 20 samples, overall at a conservative floor, otherwise `confidence_label = insufficient_data`.
 - **Scope**: Sageo is single-site per working directory. A cross-site (global) registry is not yet shipped; do not reference `sageo sites` or a `portfolio` command.
+
+## Forecast output shape
+
+`sageo recommendations forecast` emits this envelope (confirmed against live data):
+
+```jsonc
+{
+  "data": {
+    "estimated_point": 1178,
+    "estimated_range_low": 469,
+    "estimated_range_high": 1887,
+    "tier_counts": { "high": 2, "medium": 0, "low": 0, "unknown": 49 },
+    "top": [
+      {
+        "id": "...", "target_url": "...", "change_type": "indexability_fix",
+        "priority_tier": "high",
+        "point_estimate": 477, "range_low": 191, "range_high": 763,
+        "raw_estimate": 477,
+        "calibrated": false,
+        "calibration_samples": 0,
+        "confidence_label": "insufficient_data",
+        "caveats": ["insufficient_calibration_data"]
+      }
+    ]
+  }
+}
+```
+
+`priority_tier` is the primary user-facing signal. `calibrated_estimate`, `calibrated_confidence_low`, `calibrated_confidence_high`, and `method` only appear once calibration data exists for a ChangeType; don't assume they will be present on cold projects. Forecast rows for URLs without GSC search-volume signal are logged to **stderr** (`forecast: no search-volume signal for <url> (change_type) — skipping`) and then dropped from `data.top`.
 
 ## Cost tiers
 

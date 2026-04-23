@@ -94,7 +94,7 @@ Supported engines: chatgpt, claude, gemini, perplexity`,
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
@@ -374,7 +374,7 @@ Flags:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			cacheDir := aeoCacheDir()
@@ -538,7 +538,7 @@ func newAEOKeywordsCmd(format *string, verbose *bool) *cobra.Command {
 
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 
 			if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
@@ -742,7 +742,7 @@ func setupMentionsRun(format *string, verbose *bool, endpoint, term string, dryR
 
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+		return nil, output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 	}
 	if cfg.DataForSEOLogin == "" || cfg.DataForSEOPassword == "" {
 		return nil, output.PrintCodedError(output.ErrAEOFailed, "DataForSEO credentials not configured",

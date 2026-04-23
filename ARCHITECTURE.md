@@ -162,6 +162,15 @@ One sentence per stage.
 8. **Compare.** On the next run, `internal/compare` detectors check whether the recommendation was addressed (e.g. schema now visible, PSI crossed a good-band threshold, referring domains grew).
 9. **Calibration.** When addressed and GSC data is paired in both snapshots, `compare` appends an `ObservedLift` record to `.sageo/calibration.json`; the forecaster reads it on the next `recommendations forecast` invocation.
 
+## CLI UX: doctor and preflight
+
+`sageo` uses two CLI-layer guardrails to keep agent-driven runs honest:
+
+- **`sageo doctor`** (`internal/cli/commands/doctor.go`) runs a fixed checklist against project state, config, and stored OAuth tokens: `project_initialised`, `brand_terms`, `gsc_auth`, `gsc_property`, `psi_api_key`, `llm_provider`, `dataforseo_creds`. Each check is a small pure function receiving a `doctorInputs` bundle and returning a `doctorCheck{Name, Status, Message, Fix}`. JSON output lists `data.checks[]` plus a `data.summary{pass,warn,fail}` tally. Warnings never fail the command; any fail causes a non-zero exit.
+- **Hard preflight on `sageo run`** (`preflightGSCCheck` in `run.go`) aborts with `GSC_NOT_CONFIGURED` when no active GSC property is configured, unless the user passes `--skip gsc` or `--only` excludes gsc. The returned error carries a `Hint()` with the three-line fix, which `output.PrintCodedErrorWithHint` renders in both the JSON envelope (`error.hint`) and the text output (`Hint:` line on stderr). This replaces the silent warning that produced 20 unknown-tier recommendations on the baysidebuilderswa.com.au run.
+
+Commands that terminate setup steps (`init`, `auth login gsc`, `run`, `recommendations review`) also write a `Next steps:` block to stderr via `printNextSteps` in `internal/cli/commands/nextsteps.go`, so both humans and agents see the exact next command to run. Stderr is used unconditionally so JSON consumers parsing stdout are unaffected.
+
 ## Cost control
 
 - **Estimate.** Each paid stage implements `EstimateUSD(*state.State) float64`. The pipeline sums estimates up front and surfaces them via `--dry-run`.

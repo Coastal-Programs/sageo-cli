@@ -61,8 +61,9 @@ queue as JSON (for agent-driven review pipelines).`,
 			}
 
 			if !state.Exists(".") {
-				return output.PrintCodedError("NO_PROJECT",
-					"No project initialized — run sageo init --url <site>",
+				return output.PrintCodedErrorWithHint(output.ErrNoProject,
+					"No project initialized in this directory",
+					"sageo init --url <site>",
 					nil, nil, output.Format(*format))
 			}
 			st, err := state.Load(".")
@@ -121,6 +122,9 @@ queue as JSON (for agent-driven review pipelines).`,
 				}, output.Format(*format))
 			}
 			fmt.Printf("Reviewed %d of %d. Counts: %v\n", processed, len(queue), ReviewStatusCounts(st))
+			printNextSteps(cmd.ErrOrStderr(), []string{
+				"sageo report html --open",
+			})
 			return nil
 		},
 	}

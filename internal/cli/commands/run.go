@@ -75,11 +75,29 @@ func NewRunCmd(format *string, verbose *bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run <url>",
 		Short: "End-to-end autonomous run: crawl → audit → GSC → PSI → SERP → Labs → backlinks → AEO → merge → recommend → draft → forecast",
-		Args:  cobra.ExactArgs(1),
+		Long: `End-to-end autonomous run: crawl → audit → GSC → PSI → SERP → Labs →
+backlinks → AEO → merge → recommend → draft → forecast.
+
+BEFORE YOU RUN:
+  1. sageo init --url <site>   (creates .sageo/state.json)
+  2. sageo auth login gsc      (OAuth; needed for search-volume signal)
+  3. sageo gsc sites use <property>   (MANDATORY — without it every
+     forecast collapses to priority_tier=unknown, and sageo run will
+     abort with GSC_NOT_CONFIGURED. Opt out with --skip gsc.)
+
+TYPICAL FLOW:
+  sageo run <url> --budget 10
+  sageo recommendations review
+  sageo report html --open
+
+Run 'sageo doctor' to verify the environment before starting.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetURL := args[0]
 			if _, err := url.Parse(targetURL); err != nil || !strings.HasPrefix(targetURL, "http") {
-				return output.PrintCodedError(output.ErrInvalidURL, "invalid target URL", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrInvalidURL, "invalid target URL",
+					"Use a full URL, for example: sageo run https://example.com",
+					err, nil, output.Format(*format))
 			}
 
 			// Ensure project is initialised so every stage can persist state.
@@ -95,11 +113,18 @@ func NewRunCmd(format *string, verbose *bool) *cobra.Command {
 				return output.PrintCodedError("RUN_PROMPTS_FAILED", "failed to load prompts", err, nil, output.Format(*format))
 			}
 
-			// Pre-flight: warn up front when the GSC stage will run blind, because
-			// a missing GSC property is a silent but catastrophic failure (every
-			// forecast drops to priority_tier: unknown with "no search-volume
-			// signal"). Skip the warning when the user explicitly excluded gsc.
-			preflightGSCWarning(cmd.ErrOrStderr(), toSet(skipFlag), toSet(onlyFlag))
+			// Pre-flight: abort up front when the GSC stage will run blind,
+			// because a missing GSC property is a silent but catastrophic
+			// failure (every forecast drops to priority_tier: unknown with "no
+			// search-volume signal"). `--skip gsc` is the documented opt-out.
+			if pfErr := preflightGSCCheck(toSet(skipFlag), toSet(onlyFlag), loadedGSCProperty()); pfErr != nil {
+				return output.PrintCodedErrorWithHint(
+					output.ErrGSCNotConfigured,
+					"GSC stage would run without an active property — refusing to produce unknown-tier recommendations",
+					pfErr.Hint(),
+					pfErr, nil, output.Format(*format),
+				)
+			}
 
 			cfgRun := pipeline.Config{
 				WorkDir:            ".",
@@ -172,6 +197,12 @@ func NewRunCmd(format *string, verbose *bool) *cobra.Command {
 				return output.PrintCodedError("PIPELINE_FAILED", "pipeline failed: "+res.FailedStage, runErr, meta, output.Format(*format))
 			}
 
+			if !dryRun && res.Outcome != "failed" {
+				printNextSteps(cmd.ErrOrStderr(), []string{
+					"sageo recommendations review",
+					"sageo report html --open",
+				})
+			}
 			return output.PrintSuccess(res, meta, output.Format(*format))
 		},
 	}
@@ -232,46 +263,48 @@ func loadRunPrompts(path string) ([]string, error) {
 	return prompts, scan.Err()
 }
 
-// preflightGSCWarning emits a loud stderr warning when the GSC stage is
-// going to run without an active property configured. Skipping GSC is
-// never a hard error (the pipeline tolerates missing auth / missing
-// property), but without it every downstream forecast loses its
-// search-volume signal and collapses to UNKNOWN. The silent variant of
-// this check was the root cause of the baysidebuilderswa.com.au
-// debacle: the agent ran the full pipeline without calling `sageo gsc
-// sites use` first and produced 20 unknown-tier recommendations.
-func preflightGSCWarning(errW io.Writer, skip, only map[string]bool) {
-	cfg, err := config.Load()
-	gscProperty := ""
-	if err == nil && cfg != nil {
-		gscProperty = cfg.GSCProperty
-	}
-	preflightGSCWarningWithProperty(errW, skip, only, gscProperty)
+// preflightError is returned by preflightGSCCheck when the gsc stage would
+// run without the config it needs. It carries a Hint() that names the three
+// commands required to fix the state.
+type preflightError struct {
+	msg  string
+	hint string
 }
 
-// preflightGSCWarningWithProperty is the injectable core of
-// preflightGSCWarning, split out so tests can exercise the logic without
-// relying on the global cached config path.
-func preflightGSCWarningWithProperty(errW io.Writer, skip, only map[string]bool, gscProperty string) {
+func (e *preflightError) Error() string { return e.msg }
+func (e *preflightError) Hint() string  { return e.hint }
+
+// loadedGSCProperty is an indirection that lets tests inject a property
+// without relying on the global config path.
+var loadedGSCProperty = func() string {
+	cfg, err := config.Load()
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return cfg.GSCProperty
+}
+
+// preflightGSCCheck aborts `sageo run` when the GSC stage would run without
+// an active property. A silent skip is catastrophic: every downstream
+// forecast collapses to priority_tier=unknown and recommendations lose
+// their search-volume and position signals. This was the root cause of the
+// baysidebuilderswa.com.au debacle. Returns nil when --skip gsc or --only
+// excludes gsc, or when a property is already configured.
+func preflightGSCCheck(skip, only map[string]bool, gscProperty string) *preflightError {
 	if skip[stageGSC] {
-		return
+		return nil
 	}
 	if len(only) > 0 && !only[stageGSC] {
-		return
+		return nil
 	}
 	if gscProperty != "" {
-		return
+		return nil
 	}
-	_, _ = fmt.Fprintln(errW, "")
-	_, _ = fmt.Fprintln(errW, "!! WARNING: no GSC property configured. The gsc stage will be skipped.")
-	_, _ = fmt.Fprintln(errW, "!! Without GSC data every forecast collapses to priority_tier=unknown")
-	_, _ = fmt.Fprintln(errW, "!! and recommendations lose their search-volume and position signals.")
-	_, _ = fmt.Fprintln(errW, "!! Fix: Ctrl-C, then run:")
-	_, _ = fmt.Fprintln(errW, "!!     sageo auth login gsc")
-	_, _ = fmt.Fprintln(errW, "!!     sageo gsc sites list")
-	_, _ = fmt.Fprintln(errW, "!!     sageo gsc sites use <property>")
-	_, _ = fmt.Fprintln(errW, "!! Or re-run with --skip gsc to suppress this warning.")
-	_, _ = fmt.Fprintln(errW, "")
+	return &preflightError{
+		msg: "no GSC property configured; forecasts would collapse to priority_tier=unknown",
+		hint: "Run: sageo auth login gsc && sageo gsc sites list && sageo gsc sites use <property>. " +
+			"Or re-run with --skip gsc to proceed without GSC data.",
+	}
 }
 
 // buildRunStages wires the concrete stage list used by `sageo run`.

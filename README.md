@@ -239,6 +239,7 @@ The merge engine applies 14 cross-source rules to produce the initial recommenda
 
 ```
 sageo init              Initialise a .sageo project for a site
+sageo doctor            Run diagnostic checks on project, config, and auth
 sageo status            Show current project state and which sources are populated
 sageo login             Interactive credential setup for GSC, DataForSEO, Anthropic, OpenAI
 sageo logout            Clear all stored credentials
@@ -273,6 +274,8 @@ Single-run client audit:
 ```bash
 sageo init --url https://client.example --brand "Client,client.example"
 sageo auth login gsc
+sageo gsc sites use https://client.example/   # mandatory before sageo run
+sageo doctor                                  # verify everything is ready
 sageo run https://client.example --budget 15
 sageo recommendations review
 sageo report html --brand-color "#0A6AFF" --logo ./client-logo.png --open

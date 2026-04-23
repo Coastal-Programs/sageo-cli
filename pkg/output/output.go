@@ -31,6 +31,7 @@ type ErrorPayload struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 	Detail  string `json:"detail,omitempty"`
+	Hint    string `json:"hint,omitempty"`
 }
 
 // PrintSuccess prints a successful command envelope.
@@ -44,6 +45,14 @@ func PrintSuccess(data any, metadata map[string]any, format Format) error {
 
 // PrintCodedError prints an error envelope with a machine-readable error code.
 func PrintCodedError(code, message string, err error, metadata map[string]any, format Format) error {
+	return PrintCodedErrorWithHint(code, message, "", err, metadata, format)
+}
+
+// PrintCodedErrorWithHint prints an error envelope with a machine-readable
+// error code and a human-friendly hint describing the fix. The hint appears
+// in the JSON envelope as error.hint, and (for non-JSON formats) is rendered
+// on stderr after the error payload as a separate `Hint:` line.
+func PrintCodedErrorWithHint(code, message, hint string, err error, metadata map[string]any, format Format) error {
 	detail := ""
 	if err != nil {
 		detail = err.Error()
@@ -55,6 +64,7 @@ func PrintCodedError(code, message string, err error, metadata map[string]any, f
 			Code:    code,
 			Message: message,
 			Detail:  detail,
+			Hint:    hint,
 		},
 		Metadata: metadata,
 	}
@@ -66,6 +76,9 @@ func PrintCodedError(code, message string, err error, metadata map[string]any, f
 	} else {
 		if marshalErr := printJSON(payload, os.Stderr); marshalErr != nil {
 			return marshalErr
+		}
+		if hint != "" {
+			_, _ = fmt.Fprintln(os.Stderr, "Hint: "+hint)
 		}
 	}
 

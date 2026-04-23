@@ -17,7 +17,9 @@ func NewInitCmd(format *string, verbose *bool) *cobra.Command {
 		Short: "Initialize a .sageo project for a site",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if siteURL == "" {
-				return output.PrintCodedError(output.ErrInvalidURL, "--url is required", nil, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrInvalidURL, "--url is required",
+					"Use a full URL, for example: sageo init --url https://example.com",
+					nil, nil, output.Format(*format))
 			}
 
 			s, err := state.Init(".", siteURL)
@@ -34,6 +36,12 @@ func NewInitCmd(format *string, verbose *bool) *cobra.Command {
 					}
 				}
 			}
+
+			printNextSteps(cmd.ErrOrStderr(), []string{
+				"sageo auth login gsc",
+				"sageo gsc sites use " + s.Site,
+				"sageo run " + s.Site + " --budget 10",
+			})
 
 			return output.PrintSuccess(map[string]interface{}{
 				"site":        s.Site,

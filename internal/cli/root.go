@@ -27,7 +27,17 @@ func newRootCmd(version string) *cobra.Command {
 		Short: "Sageo CLI for SEO crawling, auditing, and reporting",
 		Long: `sageo is a command-line tool for SEO, GEO, and AEO operations.
 
-Crawl websites, run SEO audits, generate reports, and manage providers.`,
+Crawl websites, run SEO audits, generate reports, and manage providers.
+
+TYPICAL FLOW:
+  1. sageo init --url https://example.com --brand "Example,example.com"
+  2. sageo auth login gsc
+  3. sageo gsc sites use https://example.com/   (MANDATORY before sageo run)
+  4. sageo run https://example.com --budget 10
+  5. sageo recommendations review
+  6. sageo report html --open
+
+Run 'sageo doctor' to check your project is ready.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -63,6 +73,7 @@ Crawl websites, run SEO audits, generate reports, and manage providers.`,
 	cmd.AddCommand(commands.NewPSICmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewRecommendationsCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewRunCmd(&outputFormat, &verbose))
+	cmd.AddCommand(commands.NewDoctorCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewSnapshotsCmd(&outputFormat, &verbose))
 	cmd.AddCommand(commands.NewCompareCmd(&outputFormat, &verbose))
 

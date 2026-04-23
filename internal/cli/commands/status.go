@@ -17,9 +17,10 @@ func NewStatusCmd(format *string, verbose *bool) *cobra.Command {
 		Short: "Show the current project state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
-				return output.PrintCodedError(
-					"NO_PROJECT",
-					"No project initialized — run sageo init --url <site>",
+				return output.PrintCodedErrorWithHint(
+					output.ErrNoProject,
+					"No project initialized in this directory",
+					"sageo init --url <site>",
 					nil, nil,
 					output.Format(*format),
 				)

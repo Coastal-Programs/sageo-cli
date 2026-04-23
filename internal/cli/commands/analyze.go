@@ -20,9 +20,10 @@ func NewAnalyzeCmd(format *string, verbose *bool) *cobra.Command {
 		Short: "Run cross-source analysis and merge findings into state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
-				return output.PrintCodedError(
-					"NO_PROJECT",
-					"No project initialized — run sageo init --url <site>",
+				return output.PrintCodedErrorWithHint(
+					output.ErrNoProject,
+					"No project initialized in this directory",
+					"sageo init --url <site>",
 					nil, nil,
 					output.Format(*format),
 				)

@@ -36,8 +36,9 @@ func newRecommendationsForecastCmd(format *string) *cobra.Command {
 		Short: "Estimate monthly click lift for each stored recommendation",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
-				return output.PrintCodedError("NO_PROJECT",
-					"No project initialized: run sageo init --url <site>",
+				return output.PrintCodedErrorWithHint(output.ErrNoProject,
+					"No project initialized in this directory",
+					"sageo init --url <site>",
 					nil, nil, output.Format(*format))
 			}
 			st, err := state.Load(".")
@@ -157,13 +158,14 @@ func newRecommendationsDraftCmd(format *string) *cobra.Command {
 		Short: "Use an LLM to draft concrete copy for recommendations with empty RecommendedValue",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !state.Exists(".") {
-				return output.PrintCodedError("NO_PROJECT",
-					"No project initialized: run sageo init --url <site>",
+				return output.PrintCodedErrorWithHint(output.ErrNoProject,
+					"No project initialized in this directory",
+					"sageo init --url <site>",
 					nil, nil, output.Format(*format))
 			}
 			cfg, err := config.Load()
 			if err != nil {
-				return output.PrintCodedError(output.ErrConfigLoadFailed, "failed to load config", err, nil, output.Format(*format))
+				return output.PrintCodedErrorWithHint(output.ErrConfigLoadFailed, "failed to load config", "Run `sageo config list` to inspect your config, or re-run `sageo init --url <site>` if the project is new.", err, nil, output.Format(*format))
 			}
 			st, err := state.Load(".")
 			if err != nil {
@@ -363,9 +365,10 @@ func newRecommendationsListCmd(format *string) *cobra.Command {
 			}
 
 			if !state.Exists(".") {
-				return output.PrintCodedError(
-					"NO_PROJECT",
-					"No project initialized: run sageo init --url <site>",
+				return output.PrintCodedErrorWithHint(
+					output.ErrNoProject,
+					"No project initialized in this directory",
+					"sageo init --url <site>",
 					nil, nil, output.Format(fmtStr),
 				)
 			}
