@@ -14,7 +14,7 @@ Cost tier legend: **Free**, **Free+OAuth**, **Paid** (DataForSEO micro), **Paid 
 | `sageo status` | Free | Show `sources_used`, `sources_missing`, `pipeline_cursor` |
 | `sageo analyze` | Free | Merge all stored sources into findings + recommendations |
 | `sageo version` | Free | Print version and build metadata |
-| `sageo doctor` | Free | Run diagnostic checks on project state, config, and auth. Use first when setup is unclear. Exit 1 if any check fails; warnings never fail. |
+| `sageo doctor` | Free | Run diagnostic checks on project state, config, and auth. Use first when setup is unclear. Exit 1 if any check fails (envelope flips to `success: false` with `error.code = DOCTOR_CHECKS_FAILED` and the first failing fix in `error.hint`); warnings never fail. |
 
 ## Auth and config
 
