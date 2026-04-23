@@ -108,6 +108,25 @@ func TestCheckLLMProvider_OpenAIVariant(t *testing.T) {
 	}
 }
 
+func TestFirstFailFix_PrefersFirstFailingFix(t *testing.T) {
+	checks := []doctorCheck{
+		{Name: "a", Status: checkPass},
+		{Name: "b", Status: checkWarn, Fix: "not this"},
+		{Name: "c", Status: checkFail, Fix: "sageo init --url <site>"},
+		{Name: "d", Status: checkFail, Fix: "sageo auth login gsc"},
+	}
+	if got := firstFailFix(checks); got != "sageo init --url <site>" {
+		t.Errorf("expected first failing fix, got %q", got)
+	}
+}
+
+func TestFirstFailFix_FallbackWhenNoFixProvided(t *testing.T) {
+	checks := []doctorCheck{{Name: "a", Status: checkFail}}
+	if got := firstFailFix(checks); !contains(got, "sageo doctor") {
+		t.Errorf("expected fallback mentioning sageo doctor, got %q", got)
+	}
+}
+
 func findCheck(checks []doctorCheck, name string) doctorCheck {
 	for _, c := range checks {
 		if c.Name == name {

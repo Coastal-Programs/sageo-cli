@@ -33,13 +33,10 @@ type doctorCheck struct {
 // doctorInputs is the bundle of things each check reads. Assembled once at
 // the start of the command so individual checks stay pure and testable.
 type doctorInputs struct {
-	WorkDir       string
 	ProjectExists bool
 	State         *state.State
 	Config        *config.Config
-	ConfigLoadErr error
 	GSCStatus     auth.Status
-	GSCStatusErr  error
 	PSIEnvPresent bool
 }
 
@@ -60,52 +57,72 @@ agent wants to verify the environment before driving the pipeline.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in := gatherDoctorInputs()
 			checks := runDoctorChecks(in)
-
 			summary := summariseChecks(checks)
+			fmtStr := output.Format(*format)
+
+			// When any check fails, emit an error envelope so that
+			// envelope.success == false matches the non-zero exit code.
+			// Consumers still get the details via metadata.checks /
+			// metadata.summary.
+			if summary["fail"] > 0 {
+				if fmtStr != output.FormatJSON {
+					renderDoctorText(cmd.OutOrStdout(), checks, summary)
+				}
+				meta := map[string]any{
+					"checks":  checks,
+					"summary": summary,
+				}
+				return output.PrintCodedErrorWithHint(
+					"DOCTOR_CHECKS_FAILED",
+					fmt.Sprintf("%d check(s) failed", summary["fail"]),
+					firstFailFix(checks),
+					nil, meta, fmtStr,
+				)
+			}
+
 			data := map[string]any{
 				"checks":  checks,
 				"summary": summary,
 			}
-
-			fmtStr := output.Format(*format)
 			if fmtStr == output.FormatJSON {
-				if err := output.PrintSuccess(data, nil, fmtStr); err != nil {
-					return err
-				}
-			} else {
-				renderDoctorText(cmd.OutOrStdout(), checks, summary)
+				return output.PrintSuccess(data, nil, fmtStr)
 			}
-
-			if summary["fail"] > 0 {
-				// Return non-nil so the process exits non-zero, but do not
-				// re-print an error envelope. Cobra's SilenceErrors swallows
-				// the message.
-				return fmt.Errorf("doctor: %d check(s) failed", summary["fail"])
-			}
+			renderDoctorText(cmd.OutOrStdout(), checks, summary)
 			return nil
 		},
 	}
 }
 
 func gatherDoctorInputs() doctorInputs {
-	in := doctorInputs{WorkDir: "."}
+	in := doctorInputs{}
 	in.ProjectExists = state.Exists(".")
 	if in.ProjectExists {
 		if s, err := state.Load("."); err == nil {
 			in.State = s
 		}
 	}
-	cfg, err := config.Load()
-	in.Config = cfg
-	in.ConfigLoadErr = err
+	if cfg, err := config.Load(); err == nil {
+		in.Config = cfg
+	}
 
 	store := auth.NewFileTokenStore()
-	st, stErr := store.Status("gsc")
-	in.GSCStatus = st
-	in.GSCStatusErr = stErr
+	if st, err := store.Status("gsc"); err == nil {
+		in.GSCStatus = st
+	}
 
 	in.PSIEnvPresent = os.Getenv("SAGEO_PSI_API_KEY") != ""
 	return in
+}
+
+// firstFailFix returns the Fix of the first failing check so the error
+// envelope can surface a concrete next action via error.hint.
+func firstFailFix(checks []doctorCheck) string {
+	for _, c := range checks {
+		if c.Status == checkFail && c.Fix != "" {
+			return c.Fix
+		}
+	}
+	return "Run `sageo doctor` again after addressing the failing checks above."
 }
 
 // runDoctorChecks is the pure core. Tests call this directly.

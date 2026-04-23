@@ -218,6 +218,12 @@ func loginGSC(format *string, verbose *bool) error {
 		return output.PrintCodedError(output.ErrAuthFailed, "failed to save token", err, nil, output.Format(*format))
 	}
 
+	printNextSteps(os.Stderr, []string{
+		"sageo gsc sites list",
+		"sageo gsc sites use <property>",
+		"sageo run <url> --budget 10",
+	})
+
 	return output.PrintSuccess(map[string]any{
 		"service": "gsc",
 		"status":  "authenticated",

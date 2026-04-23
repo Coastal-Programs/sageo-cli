@@ -287,11 +287,8 @@ func runGSCLoginForm(format *string, verbose *bool) error {
 
 	fmt.Println(loginSuccessStyle.Render("✓ Google OAuth authenticated (GSC + PSI)"))
 	fmt.Println()
-	printNextSteps(os.Stderr, []string{
-		"sageo gsc sites list",
-		"sageo gsc sites use <property>",
-		"sageo run <url> --budget 10",
-	})
+	// Next-steps are emitted from loginGSC itself so both the TUI wrapper
+	// and the direct `sageo auth login gsc` command see the same guidance.
 	return nil
 }
 
