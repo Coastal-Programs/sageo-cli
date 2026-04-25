@@ -107,6 +107,8 @@ func handleMeta(n *html.Node, result *PageResult) {
 		result.MetaRobots = content
 	case "viewport":
 		result.Viewport = content
+	case "author":
+		result.MetaAuthor = content
 	}
 	switch property {
 	case "og:title":
@@ -198,17 +200,23 @@ func handleScript(n *html.Node, result *PageResult) {
 	if raw == "" {
 		return
 	}
-	// Try to extract @type from the JSON-LD
+	// Try object form. Retain the parsed body in Schemas so audit rules
+	// can walk nested properties (author, sameAs, @graph) that the flat
+	// SchemaTypes projection discards.
 	var obj map[string]interface{}
 	if err := json.Unmarshal([]byte(raw), &obj); err == nil {
+		result.Schemas = append(result.Schemas, RawSchema(obj))
 		if t, ok := obj["@type"].(string); ok {
 			result.SchemaTypes = append(result.SchemaTypes, t)
 		}
 	}
-	// Also try array form
+	// Also try array form. The two unmarshals are mutually exclusive
+	// (object input fails the array unmarshal silently and vice versa)
+	// so there is no double-append risk.
 	var arr []map[string]interface{}
 	if err := json.Unmarshal([]byte(raw), &arr); err == nil {
 		for _, item := range arr {
+			result.Schemas = append(result.Schemas, RawSchema(item))
 			if t, ok := item["@type"].(string); ok {
 				result.SchemaTypes = append(result.SchemaTypes, t)
 			}

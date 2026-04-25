@@ -2,6 +2,7 @@ package audit
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jakeschepis/sageo-cli/internal/common/urlnorm"
 	"github.com/jakeschepis/sageo-cli/internal/crawl"
@@ -359,6 +360,113 @@ func checkMetaRobots(page crawl.PageResult) []Issue {
 		}}
 	}
 	return nil
+}
+
+// checkAuthorByline emits "missing-author-byline" on article-shaped pages
+// that expose no author signal. The downstream merge rule
+// "missing-author-signals" (internal/merge/merge.go) and the
+// ChangeAuthorByline recommendation chain are already wired upstream;
+// this checker is the missing source feeding them. Why/Fix copy is
+// pulled verbatim from the merge rule (merge.go:521-522) so the two
+// layers do not drift.
+func checkAuthorByline(page crawl.PageResult) []Issue {
+	if !isArticleShaped(page) {
+		return nil
+	}
+	if hasAuthorSignal(page) {
+		return nil
+	}
+	return []Issue{{
+		Rule:     "missing-author-byline",
+		Severity: SeverityWarning,
+		URL:      page.URL,
+		Message:  "Article page has no visible author byline",
+		Why:      "Page has no visible author byline: E-E-A-T / author-signal lever is absent, which suppresses citation eligibility on Google AI Overviews and Perplexity.",
+		Fix:      "Add a visible author name with credentials, a linked bio page, and Person structured data (sameAs Wikipedia/Wikidata where available).",
+	}}
+}
+
+// isArticleShaped reports whether a page looks like an article that
+// would reasonably benefit from an author byline. Non-article pages
+// (homepage, product, category, contact) are skipped to avoid false
+// positives.
+func isArticleShaped(page crawl.PageResult) bool {
+	if strings.EqualFold(page.OGType, "article") {
+		return true
+	}
+	for _, t := range page.SchemaTypes {
+		switch t {
+		case "Article", "NewsArticle", "BlogPosting", "ScholarlyArticle", "TechArticle":
+			return true
+		}
+	}
+	pathLower := strings.ToLower(page.URL)
+	for _, marker := range []string{"/blog/", "/post/", "/posts/", "/article/", "/articles/", "/news/"} {
+		if strings.Contains(pathLower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAuthorSignal reports whether a page exposes any indication of
+// authorship: a <meta name="author"> tag, a top-level Person schema, or
+// a nested Article.author / @graph[].author resolving to @type==Person.
+func hasAuthorSignal(page crawl.PageResult) bool {
+	if strings.TrimSpace(page.MetaAuthor) != "" {
+		return true
+	}
+	for _, t := range page.SchemaTypes {
+		if t == "Person" {
+			return true
+		}
+	}
+	for _, sc := range page.Schemas {
+		if findPersonAuthor(sc) {
+			return true
+		}
+	}
+	return false
+}
+
+// findPersonAuthor walks one schema looking for a Person node nested
+// as an `author` property or as an entry inside an `@graph` array.
+// Tolerant of missing fields and arbitrary nesting depth.
+func findPersonAuthor(s crawl.RawSchema) bool {
+	if t, ok := s["@type"].(string); ok && t == "Person" {
+		return true
+	}
+	if author, ok := s["author"]; ok && isPersonValue(author) {
+		return true
+	}
+	if graph, ok := s["@graph"].([]interface{}); ok {
+		for _, item := range graph {
+			if m, ok := item.(map[string]interface{}); ok {
+				if findPersonAuthor(crawl.RawSchema(m)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// isPersonValue reports whether v is a Person object or an array
+// containing at least one Person object.
+func isPersonValue(v interface{}) bool {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		if t, ok := x["@type"].(string); ok && t == "Person" {
+			return true
+		}
+	case []interface{}:
+		for _, item := range x {
+			if isPersonValue(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func checkLang(page crawl.PageResult) []Issue {

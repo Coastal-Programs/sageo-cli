@@ -640,3 +640,118 @@ func TestAuditSchemaDetectedInfoIssues(t *testing.T) {
 		t.Error("expected schema-detected-BreadcrumbList info issue")
 	}
 }
+
+// hasIssue reports whether result.Issues contains the given rule.
+func hasIssue(issues []Issue, rule string) bool {
+	for _, i := range issues {
+		if i.Rule == rule {
+			return true
+		}
+	}
+	return false
+}
+
+func TestAuthorBylineNonArticlePageNoFinding(t *testing.T) {
+	svc := NewService()
+	page := perfectPage("https://example.com", "Home", "Home description")
+	// perfectPage sets SchemaTypes: ["WebSite"] and no OGType — gate fails
+	result, err := svc.Run(context.Background(), Request{
+		CrawlResult: crawl.Result{Pages: []crawl.PageResult{page}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasIssue(result.Issues, "missing-author-byline") {
+		t.Error("did not expect missing-author-byline on non-article page")
+	}
+}
+
+func TestAuthorBylineArticleNoSignalsFires(t *testing.T) {
+	svc := NewService()
+	page := perfectPage("https://example.com/post-1", "Post 1", "First post")
+	page.OGType = "article"
+	page.MetaAuthor = ""
+	page.Schemas = nil
+	page.SchemaTypes = []string{"WebSite"} // not Person, not Article-family
+	result, err := svc.Run(context.Background(), Request{
+		CrawlResult: crawl.Result{Pages: []crawl.PageResult{page}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	count := 0
+	var found Issue
+	for _, i := range result.Issues {
+		if i.Rule == "missing-author-byline" {
+			count++
+			found = i
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 missing-author-byline issue, got %d", count)
+	}
+	if found.Severity != SeverityWarning {
+		t.Errorf("expected severity warning, got %q", found.Severity)
+	}
+}
+
+func TestAuthorBylineArticleWithMetaAuthorNoFinding(t *testing.T) {
+	svc := NewService()
+	page := perfectPage("https://example.com/post-2", "Post 2", "Second post")
+	page.OGType = "article"
+	page.MetaAuthor = "Jane Doe"
+	result, err := svc.Run(context.Background(), Request{
+		CrawlResult: crawl.Result{Pages: []crawl.PageResult{page}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasIssue(result.Issues, "missing-author-byline") {
+		t.Error("did not expect missing-author-byline when meta author is present")
+	}
+}
+
+func TestAuthorBylineBlogPostingWithNestedPersonNoFinding(t *testing.T) {
+	svc := NewService()
+	page := perfectPage("https://example.com/post-3", "Post 3", "Third post")
+	page.OGType = "article"
+	page.MetaAuthor = ""
+	page.SchemaTypes = []string{"BlogPosting"}
+	page.Schemas = []crawl.RawSchema{
+		{
+			"@type": "BlogPosting",
+			"author": map[string]interface{}{
+				"@type": "Person",
+				"name":  "Jane Doe",
+			},
+		},
+	}
+	result, err := svc.Run(context.Background(), Request{
+		CrawlResult: crawl.Result{Pages: []crawl.PageResult{page}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasIssue(result.Issues, "missing-author-byline") {
+		t.Error("did not expect missing-author-byline when BlogPosting.author is a Person")
+	}
+}
+
+func TestAuthorBylineURLHeuristicFires(t *testing.T) {
+	svc := NewService()
+	// No OGType, no Article-family schema, but URL matches /blog/ pattern
+	page := perfectPage("https://example.com/blog/post-1", "Blog Post", "A post")
+	page.OGType = ""
+	page.MetaAuthor = ""
+	page.SchemaTypes = []string{"WebSite"}
+	page.Schemas = nil
+	result, err := svc.Run(context.Background(), Request{
+		CrawlResult: crawl.Result{Pages: []crawl.PageResult{page}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasIssue(result.Issues, "missing-author-byline") {
+		t.Error("expected missing-author-byline to fire via URL heuristic")
+	}
+}

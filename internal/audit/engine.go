@@ -29,6 +29,7 @@ func (e *engine) Run(ctx context.Context, req Request) (Result, error) {
 		checkResponseTime,
 		checkWordCount,
 		checkSchema,
+		checkAuthorByline,
 		checkMetaRobots,
 		checkLang,
 	}
