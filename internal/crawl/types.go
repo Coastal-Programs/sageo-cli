@@ -28,6 +28,7 @@ type PageResult struct {
 
 	// Meta directives
 	MetaRobots string `json:"meta_robots,omitempty"`
+	MetaAuthor string `json:"meta_author,omitempty"`
 	Viewport   string `json:"viewport,omitempty"`
 
 	// Open Graph
@@ -41,8 +42,9 @@ type PageResult struct {
 	Hreflang []string `json:"hreflang,omitempty"`
 
 	// Content
-	WordCount   int      `json:"word_count"`
-	SchemaTypes []string `json:"schema_types,omitempty"`
+	WordCount   int         `json:"word_count"`
+	SchemaTypes []string    `json:"schema_types,omitempty"`
+	Schemas     []RawSchema `json:"schemas,omitempty"`
 
 	// HTTP response data
 	ContentType  string `json:"content_type,omitempty"`
@@ -74,3 +76,8 @@ type CrawlError struct {
 	URL     string `json:"url"`
 	Message string `json:"message"`
 }
+
+// RawSchema is a parsed JSON-LD block, retained so audits can walk
+// nested properties (author, sameAs, @graph entries) that the flat
+// SchemaTypes projection discards.
+type RawSchema map[string]interface{}

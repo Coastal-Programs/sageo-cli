@@ -100,3 +100,50 @@ func TestExtractPageDataMalformedHTML(t *testing.T) {
 		t.Error("expected to find h1 in malformed HTML")
 	}
 }
+
+func TestExtractPageDataMetaAuthor(t *testing.T) {
+	html := []byte(`<!DOCTYPE html>
+<html>
+<head>
+	<title>Author Test</title>
+	<meta name="author" content="Jane Doe">
+</head>
+<body><h1>x</h1></body>
+</html>`)
+	result := extractPageData("https://example.com", 200, html, nil, 0)
+	if result.MetaAuthor != "Jane Doe" {
+		t.Errorf("expected MetaAuthor 'Jane Doe', got %q", result.MetaAuthor)
+	}
+}
+
+func TestExtractPageDataSchemasBody(t *testing.T) {
+	html := []byte(`<!DOCTYPE html>
+<html>
+<head>
+	<title>Schema Test</title>
+	<script type="application/ld+json">
+	{
+		"@context": "https://schema.org",
+		"@type": "Article",
+		"author": {"@type": "Person", "name": "Jane Doe"}
+	}
+	</script>
+</head>
+<body><h1>x</h1></body>
+</html>`)
+	result := extractPageData("https://example.com", 200, html, nil, 0)
+	if len(result.Schemas) != 1 {
+		t.Fatalf("expected 1 schema, got %d", len(result.Schemas))
+	}
+	author, ok := result.Schemas[0]["author"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected author to be a map, got %T", result.Schemas[0]["author"])
+	}
+	if author["@type"] != "Person" {
+		t.Errorf("expected author @type 'Person', got %v", author["@type"])
+	}
+	// Confirm SchemaTypes still works (backwards compat)
+	if len(result.SchemaTypes) != 1 || result.SchemaTypes[0] != "Article" {
+		t.Errorf("expected SchemaTypes [Article], got %v", result.SchemaTypes)
+	}
+}
